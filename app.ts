@@ -5,9 +5,8 @@ import LocalSession from 'telegraf-session-local';
 import { IConfigService } from './src/models/config.interface';
 import { ConfigService } from './src/config/config.service';
 import { MongoClient, ServerApiVersion } from 'mongodb';
-const uri =
-  'mongodb+srv://admin:jW5z6rzfvoL6SuDR@cluster0.ikklltu.mongodb.net/?retryWrites=true&w=majority';
-
+const configService = new ConfigService();
+const uri = configService.get('DB_KEY');
 const client = new MongoClient(uri, {
   serverApi: {
     version: ServerApiVersion.v1,
