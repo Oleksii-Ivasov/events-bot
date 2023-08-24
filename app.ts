@@ -5,7 +5,10 @@ import LocalSession from 'telegraf-session-local';
 import { IConfigService } from './src/models/config.interface';
 import { ConfigService } from './src/config/config.service';
 import { MongoClient, ServerApiVersion } from 'mongodb';
+import express from 'express';
 const configService = new ConfigService();
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const app = express();
 const uri = configService.get('DB_KEY');
 const client = new MongoClient(uri, {
   serverApi: {
@@ -59,6 +62,14 @@ class Bot {
     this.bot = new Telegraf(this.configService.get('TOKEN'));
     this.bot.use(new LocalSession({ database: 'sessions.json' }).middleware());
     this.bot.use(this.stage.middleware());
+    app.use(express.json());
+    app.get('/', (req, res) => {
+      res.send('Hello, this is your Express app!');
+    });
+    const PORT = process.env.PORT || 3000;
+    app.listen(PORT, () => {
+      console.log(`Server is running on port ${PORT}`);
+    });
     this.bot.command('start', async (ctx) => {
       await ctx.reply(`Вітаємо в ком'юніті Дай Винника! 👋
           
