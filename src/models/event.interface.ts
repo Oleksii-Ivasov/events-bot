@@ -4,5 +4,5 @@ export interface Event  {
     eventName: string,
     date: string,
     about: string | undefined,
-    ageRange: string
+    //ageRange: string
 }

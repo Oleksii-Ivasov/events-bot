@@ -33,7 +33,7 @@ export class SceneGenerator {
     eventName: '',
     date: '',
     about: undefined,
-    ageRange: '',
+    //ageRange: '',
   };
 
   greetingScene(): Scenes.BaseScene<MySceneContext> {
@@ -57,7 +57,7 @@ export class SceneGenerator {
   nameScene(): Scenes.BaseScene<MySceneContext> {
     const name = new Scenes.BaseScene<MySceneContext>('name');
     name.enter(async (ctx) => {
-      await ctx.reply('Як до тебе звертатись?');
+      await ctx.reply('Як до тебе звертатись?', Markup.removeKeyboard());
     });
     this.addCommands(name);
     name.on('text', async (ctx) => {
@@ -212,7 +212,8 @@ export class SceneGenerator {
     photo.enter(async (ctx) => {
       await ctx.reply(
         'Обери свої найкращі фото або відео, які будуть бачити інші'
-      );
+      ),
+        Markup.removeKeyboard();
     });
     this.addCommands(photo);
     photo.on('photo', async (ctx) => {
@@ -242,20 +243,44 @@ export class SceneGenerator {
         const userForm = await this.getUserFormDataFromDatabase(userId);
         if (userForm) {
           let caption = '';
-          if (userForm.about) {
-            caption = `Супер! Так виглядає твій профіль:
-Ім'я: ${userForm.username}
-Вік: ${userForm.age}
-Місто: ${userForm.location}
-Про себе: ${userForm.about}`;
-          } else {
-            caption = `Супер! Так виглядає твій профіль:
+          caption = `Так виглядає твій профіль:
 Ім'я: ${userForm.username}
 Вік: ${userForm.age}
 Місто: ${userForm.location}`;
+          if (userForm.about) {
+            caption = `\nПро себе: ${userForm.about}`;
           }
           await ctx.replyWithPhoto(userForm.photoId, { caption });
-          await ctx.scene.enter('eventMenu');
+          await ctx.reply(
+            `✍🏻Редагувати профіль
+🆕Додати подію
+🎟Мої події
+❌Видалити профіль`,
+            Markup.keyboard([['✍🏻', '🆕', '🎟', '❌']]).resize()
+          );
+          // userFormScene.on('text', (ctx) => {
+          //   console.log('text')
+          //   ctx.reply('', Markup.removeKeyboard())
+          // })
+
+          userFormScene.hears('✍🏻', async (ctx) => {
+            // await ctx.editMessageReplyMarkup({
+            //   reply_markup: { remove_keyboard: true },
+            //   })
+            await ctx.scene.enter('gender');
+          });
+          userFormScene.hears('🆕', async (ctx) => {
+            await ctx.scene.enter('eventName');
+          });
+          userFormScene.hears('🎟', async (ctx) => {
+            await ctx.scene.enter('userEvents');
+          });
+          userFormScene.hears('❌', async (ctx) => {
+            await this.client.connect();
+            const db = this.client.db('cluster0');
+            await db.collection('users').deleteOne({ userId: ctx.from.id });
+            await ctx.reply('Твій профіль видалено', Markup.removeKeyboard());
+          });
         } else {
           await ctx.reply('В тебе ще немає профілю');
           await ctx.scene.enter('greeting');
@@ -281,6 +306,9 @@ export class SceneGenerator {
     eventMenu.action('addEvent', async (ctx) => {
       await ctx.scene.enter('eventName');
     });
+    eventMenu.action('viewEvent', async (ctx) => {
+      await ctx.scene.enter('userEvents');
+    });
     eventMenu.on('message', async (ctx) => {
       await ctx.reply('Додай подію або обери зі списку');
     });
@@ -289,7 +317,7 @@ export class SceneGenerator {
   eventNameScene(): Scenes.BaseScene<MySceneContext> {
     const eventName = new Scenes.BaseScene<MySceneContext>('eventName');
     eventName.enter(async (ctx) => {
-      ctx.reply('Вкажи назву події');
+      ctx.reply('Вкажи назву події', Markup.removeKeyboard());
     });
     this.addCommands(eventName);
     eventName.on('text', async (ctx) => {
@@ -338,83 +366,351 @@ export class SceneGenerator {
 
     return eventAbout;
   }
-  eventAgeRangeScene(): Scenes.BaseScene<MySceneContext> {
-    const eventAgeRange = new Scenes.BaseScene<MySceneContext>('eventAgeRange');
-    eventAgeRange.enter(async (ctx) => {
-      ctx.reply(
-        'Який віковий діапазон?',
-        Markup.keyboard([['18-20', '20-22', '22-25', 'Будь-який']]).resize()
-      );
-    });
-    this.addCommands(eventAgeRange);
-    eventAgeRange.hears('18-20', async (ctx) => {
-      this.event.ageRange = '18-20';
-      await ctx.reply(
-        `Бінго! Очікуй на свій perfect match та неймовірно проведений час )`
-      );
-      await this.saveEventToDatabase(this.event);
-      await ctx.scene.enter('greeting');
-    });
-    eventAgeRange.hears('20-22', async (ctx) => {
-      this.event.ageRange = '20-22';
-      await ctx.reply(
-        `Бінго! Очікуй на свій perfect match та неймовірно проведений час )`
-      );
-      await this.saveEventToDatabase(this.event);
-      await ctx.scene.enter('greeting');
-    });
-    eventAgeRange.hears('22-25', async (ctx) => {
-      this.event.ageRange = '22-25';
-      await ctx.reply(
-        `Бінго! Очікуй на свій perfect match та неймовірно проведений час )`
-      );
-      await this.saveEventToDatabase(this.event);
-      await ctx.scene.enter('greeting');
-    });
-    eventAgeRange.hears('Будь-який', async (ctx) => {
-      this.event.ageRange = 'Будь-який';
-      await ctx.reply(
-        `Бінго! Очікуй на свій perfect match та неймовірно проведений час )`
-      );
-      await this.saveEventToDatabase(this.event);
-      await ctx.scene.enter('greeting');
-    });
-    eventAgeRange.on('text', async (ctx) => {
-      this.event.about = ctx.message.text;
-      await ctx.scene.enter('eventAgeRange');
-    });
-    eventAgeRange.on('message', async (ctx) => {
-      await ctx.reply('Вкажи деталі події');
-    });
+  // eventAgeRangeScene(): Scenes.BaseScene<MySceneContext> {
+  //   const eventAgeRange = new Scenes.BaseScene<MySceneContext>('eventAgeRange');
+  //   eventAgeRange.enter(async (ctx) => {
+  //     ctx.reply(
+  //       'Який віковий діапазон?',
+  //       Markup.keyboard([['18-20', '20-22', '22-25', 'Будь-який']]).resize()
+  //     );
+  //   });
+  //   this.addCommands(eventAgeRange);
+  //   const handleAgeRange = async (ctx: MySceneContext, ageRange: string) => {
+  //     this.event.ageRange = ageRange;
+  //     await ctx.reply(
+  //       `Бінго! Очікуй на свій perfect match та неймовірно проведений час )`,
+  //       Markup.removeKeyboard()
+  //     );
+  //     await this.saveEventToDatabase(this.event);
+  //   };
 
-    return eventAgeRange;
-  }
+  //   eventAgeRange.hears('18-20', async (ctx) => {
+  //     await handleAgeRange(ctx, '18-20');
+  //   });
+
+  //   eventAgeRange.hears('20-22', async (ctx) => {
+  //     await handleAgeRange(ctx, '20-22');
+  //   });
+
+  //   eventAgeRange.hears('22-25', async (ctx) => {
+  //     await handleAgeRange(ctx, '22-25');
+  //   });
+
+  //   eventAgeRange.hears('Будь-який', async (ctx) => {
+  //     await handleAgeRange(ctx, 'Будь-який');
+  //   });
+  //   eventAgeRange.on('message', async (ctx) => {
+  //     await ctx.reply('Обери віковий діапазон');
+  //   });
+
+  //   return eventAgeRange;
+  // }
 
   userEventListScene(): Scenes.BaseScene<MySceneContext> {
     const userEvents = new Scenes.BaseScene<MySceneContext>('userEvents');
+    let currentEventIndex = 0;
+    let currentUserIndex = 0;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let events: any;
     userEvents.enter(async (ctx) => {
-      const events = await this.getEventsFromDatabase(ctx.message?.from.id);
-      if (events) {
-        await ctx.reply(`Ось твої події:`);
-        for (const event of events) {
-          if (event.about) {
-            await ctx.reply(`Назва події: ${event.eventName}
-Дата та час події: ${event.date}
-Деталі: ${event.about}`);
-          } else {
-            await ctx.reply(`Назва події: ${event.eventName}
-Дата та час події: ${event.date}`);
-          }
-        }
-        await ctx.scene.enter('greeting');
+      events = await this.getEventsFromDatabase(ctx.from!.id);
+      currentEventIndex = 0;
+      this.userForm.userId = ctx.from!.id;
+      if (events && events.length > 0) {
+        await ctx.reply(`Ось твої події:`, Markup.removeKeyboard());
+        await this.showEvent(events, currentEventIndex, ctx);
       } else {
         await ctx.reply('Ти ще не створив жодної події');
-        await ctx.scene.enter('greeting');
+      }
+    });
+    userEvents.action('nextEvent', async (ctx) => {
+      currentEventIndex++;
+      await this.showEvent(events, currentEventIndex, ctx);
+    });
+    const regex = new RegExp(/^inviteToEvent:(.*):(.*)$/);
+    userEvents.action(regex, async (ctx) => {
+      currentUserIndex = 0;
+      const userId = ctx.from!.id;
+      //const eventAgeRange = ctx.match[1];
+      const eventName = ctx.match[1];
+      const eventDate = ctx.match[2];
+      try {
+        const userFormData = await this.getUserFormDataFromDatabase(userId);
+        if (userFormData) {
+          Object.assign(this.userForm, userFormData);
+        }
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const query: any = {
+          userId: { $ne: userId },
+          location: this.userForm.location,
+          gender:
+            this.userForm.lookingFor === 'both'
+              ? { $in: ['male', 'female'] }
+              : this.userForm.lookingFor,
+        };
+        // if (eventAgeRange === '18-20') {
+        //   query.age = { $gte: 18, $lte: 20 };
+        // } else if (eventAgeRange === '20-22') {
+        //   query.age = { $gte: 20, $lte: 22 };
+        // } else if (eventAgeRange === '22-25') {
+        //   query.age = { $gte: 22, $lte: 25 };
+        // }
+        await this.client.connect();
+        const db = this.client.db('cluster0');
+        const userMatchForms = await db
+          .collection('users')
+          .find(query)
+          .toArray();
+        await this.sendUserDetails(
+          userMatchForms as unknown as UserForm[],
+          currentUserIndex,
+          ctx
+        );
+        userEvents.hears('❤️', async () => {
+          currentUserIndex++;
+          this.sendUserDetails(
+            userMatchForms as unknown as UserForm[],
+            currentUserIndex,
+            ctx
+          );
+          if (currentUserIndex > 0) {
+            const previousUser = userMatchForms[currentUserIndex - 1];
+            const previousUserId = previousUser.userId;
+            try {
+              let username = ctx.from?.username;
+              if (username) {
+                username = '@' + username;
+              }
+              const userId = ctx.from!.id;
+              const userLink = `tg://user?id=${userId}`;
+              const mentionMessage =
+                username || `[${ctx.from?.first_name}](${userLink})`;
+              const userForm = await this.getUserFormDataFromDatabase(userId);
+              if (userForm) {
+                await ctx.telegram.sendPhoto(previousUserId, userForm.photoId, {
+                  caption: `${this.userForm.username}, ${this.userForm.age}, ${this.userForm.location}, хоче піти з тобою на подію ${eventName} ${eventDate}. Обговори деталі та приємно проведіть цей час 👋`,
+                  parse_mode: 'Markdown',
+                  reply_markup: {
+                    inline_keyboard: [
+                      [
+                        {
+                          text: '❤️',
+                          callback_data: `likeEvent:${userId}:${mentionMessage}`,
+                        },
+                        {
+                          text: '👎',
+                          callback_data: `dislikeEvent:${userId}:${ctx.from?.username}`,
+                        },
+                      ],
+                    ],
+                  },
+                });
+                await ctx.reply(
+                  `Супер! Очікуй на повідомлення від ініціатора події 🥳 Бажаю приємно провести час 👋`,
+                  Markup.removeKeyboard()
+                );
+              }
+              // await ctx.telegram.sendMessage(
+              //   previousUserId,
+              //   `${this.userForm.username} запрошує тебе на подію ${eventName} ${eventDate}. Обговори деталі...`,
+              //   {
+              //     parse_mode: 'Markdown',
+              //     reply_markup: {
+              //       inline_keyboard: [
+              //         [
+              //           {
+              //             text: '❤️',
+              //             callback_data: `like:${userId}:${mentionMessage}`,
+              //           },
+              //           {
+              //             text: '👎',
+              //             callback_data: `dislike:${userId}:${
+              //               ctx.from!.username
+              //             }`,
+              //           },
+              //         ],
+              //       ],
+              //     },
+              //   }
+              // );
+            } catch (error) {
+              console.error('Error sending notification:', error);
+            }
+          }
+        });
+        //         const regex = /^(like|dislike):(.+)$/;
+        //         userEvents.action(regex, async (ctx) => {
+        //           console.log('in userEvents');
+        //           const actionType = ctx.match[1]; // 'like' or 'dislike'
+        //           const initiatorUserId = ctx.match[2]; // User ID of the initiator
+        //           const initiatorUsername = ctx.match[3]; // Username of the initiator
+        //           if (actionType === 'like') {
+        //             // Notify the sender about the ❤️
+        //             try {
+        //               await ctx.telegram.sendMessage(
+        //                 initiatorUserId,
+        //                 `@${
+        //                   ctx.from!.username
+        //                 } прийняв ваше твоє запрошення на подію ${eventName} ${eventDate}. Обговори деталі...`
+        //               );
+        //               await ctx.reply(`@${initiatorUsername}
+        // Ти прийняв запрошення на подію 🥳. Бажаю весело провести час 👋`);
+        //             } catch (error) {
+        //               console.error('Error sending notification:', error);
+        //             }
+        //           }
+        //         });
+        userEvents.hears('👎', () => {
+          currentUserIndex++;
+          this.sendUserDetails(
+            userMatchForms as unknown as UserForm[],
+            currentUserIndex,
+            ctx
+          );
+        });
+      } catch (error) {
+        console.error('Error getting userForm data from db', error);
+      } finally {
+        await this.client.close();
       }
     });
     this.addCommands(userEvents);
-
     return userEvents;
+  }
+
+  lookForMatchScene(): Scenes.BaseScene<MySceneContext> {
+    const lookForMatch = new Scenes.BaseScene<MySceneContext>('lookForMatch');
+    let currentUserIndex = 0;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let userMatchForms: any;
+    lookForMatch.enter(async (ctx) => {
+      const userFormData = await this.getUserFormDataFromDatabase(ctx.from!.id);
+      currentUserIndex = 0;
+      if (userFormData) {
+        Object.assign(this.userForm, userFormData);
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const query: any = {
+        userId: { $ne: this.userForm.userId },
+        location: this.userForm.location,
+        gender:
+          this.userForm.lookingFor === 'both'
+            ? { $in: ['male', 'female'] }
+            : this.userForm.lookingFor,
+      };
+      await this.client.connect();
+      const db = this.client.db('cluster0');
+      userMatchForms = await db.collection('users').find(query).toArray();
+      await this.sendUserDetails(
+        userMatchForms as unknown as UserForm[],
+        currentUserIndex,
+        ctx
+      );
+    });
+    lookForMatch.hears('❤️', async (ctx) => {
+      currentUserIndex++;
+      this.sendUserDetails(
+        userMatchForms as unknown as UserForm[],
+        currentUserIndex,
+        ctx
+      );
+      if (currentUserIndex > 0) {
+        const previousUser = userMatchForms[currentUserIndex - 1];
+        const previousUserId = previousUser.userId;
+        try {
+          let username = ctx.from?.username;
+          if (username) {
+            username = '@' + username;
+          }
+          const userId = ctx.from!.id;
+          const userLink = `tg://user?id=${userId}`;
+          const mentionMessage =
+            username || `[${ctx.from?.first_name}](${userLink})`;
+          const userForm = await this.getUserFormDataFromDatabase(userId);
+          if (userForm) {
+            await ctx.telegram.sendPhoto(previousUserId, userForm.photoId, {
+              caption: `Ти сподобався ${this.userForm.username}, ${this.userForm.age}, ${this.userForm.location}`,
+              parse_mode: 'Markdown',
+              reply_markup: {
+                inline_keyboard: [
+                  [
+                    {
+                      text: '❤️',
+                      callback_data: `like:${userId}:${mentionMessage}`,
+                    },
+                    {
+                      text: '👎',
+                      callback_data: `dislike:${userId}:${ctx.from?.username}`,
+                    },
+                  ],
+                ],
+              },
+            });
+            // await ctx.reply(
+            //   `Супер! Очікуй на повідомлення від ініціатора події 🥳 Бажаю приємно провести час 👋`
+            // , Markup.removeKeyboard());
+          }
+          // await ctx.telegram.sendMessage(
+          //   previousUserId,
+          //   `${this.userForm.username} запрошує тебе на подію ${eventName} ${eventDate}. Обговори деталі...`,
+          //   {
+          //     parse_mode: 'Markdown',
+          //     reply_markup: {
+          //       inline_keyboard: [
+          //         [
+          //           {
+          //             text: '❤️',
+          //             callback_data: `like:${userId}:${mentionMessage}`,
+          //           },
+          //           {
+          //             text: '👎',
+          //             callback_data: `dislike:${userId}:${
+          //               ctx.from!.username
+          //             }`,
+          //           },
+          //         ],
+          //       ],
+          //     },
+          //   }
+          // );
+        } catch (error) {
+          console.error('Error sending notification:', error);
+        }
+      }
+
+      //         const regex = /^(like|dislike):(.+)$/;
+      //         userEvents.action(regex, async (ctx) => {
+      //           console.log('in userEvents');
+      //           const actionType = ctx.match[1]; // 'like' or 'dislike'
+      //           const initiatorUserId = ctx.match[2]; // User ID of the initiator
+      //           const initiatorUsername = ctx.match[3]; // Username of the initiator
+      //           if (actionType === 'like') {
+      //             // Notify the sender about the ❤️
+      //             try {
+      //               await ctx.telegram.sendMessage(
+      //                 initiatorUserId,
+      //                 `@${
+      //                   ctx.from!.username
+      //                 } прийняв ваше твоє запрошення на подію ${eventName} ${eventDate}. Обговори деталі...`
+      //               );
+      //               await ctx.reply(`@${initiatorUsername}
+      // Ти прийняв запрошення на подію 🥳. Бажаю весело провести час 👋`);
+      //             } catch (error) {
+      //               console.error('Error sending notification:', error);
+      //             }
+      //           }
+      //         });
+      lookForMatch.hears('👎', () => {
+        currentUserIndex++;
+        this.sendUserDetails(
+          userMatchForms as unknown as UserForm[],
+          currentUserIndex,
+          ctx
+        );
+      });
+    });
+    this.addCommands(lookForMatch);
+    return lookForMatch;
   }
 
   addCommands(scene: Scenes.BaseScene<MySceneContext>) {
@@ -423,11 +719,22 @@ export class SceneGenerator {
           
 👩 Дай Винник — незвичайний бот, який наповнить твоє життя приємними моментами. Він допоможе тобі знайти компаньона на якусь подію або просто прогулянку, а також знайти другу половинку, друга або подругу!
                         
-🫂 Офіційний запуск повноцінного боту планується 25 серпня. Проте ти вже можеш створити й налаштувати свій профіль. Міцно обійняли тебе`);
+🫂 Офіційний запуск повноцінного боту планується 27 серпня. Проте ти вже можеш створити й налаштувати свій профіль. Міцно обійняли тебе`);
       await ctx.scene.enter('greeting');
     });
     scene.command('events', async (ctx) => {
       await ctx.scene.enter('userEvents');
+    });
+    scene.command('people', async (ctx) => {
+      await ctx.scene.enter('lookForMatch');
+    });
+    scene.command('help', async (ctx) => {
+      await ctx.reply(
+        `🦸‍♀️ Маєш питання або пропозиції?
+      
+Пиши нам сюди [Олексій](tg://user?id=546195130)`,
+{ parse_mode: 'Markdown' }
+      );
     });
     scene.command('profile', async (ctx) => {
       await ctx.scene.enter('userform');
@@ -521,6 +828,63 @@ export class SceneGenerator {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (error: any) {
       console.error('Error fetching user city:', error.message);
+    }
+  }
+  async sendUserDetails(
+    userArrayFromDB: UserForm[],
+    currentIndex: number,
+    ctx: MySceneContext
+  ) {
+    const user = userArrayFromDB[currentIndex];
+    if (user) {
+      let caption = '';
+      if (user.about) {
+        caption = `Ім'я: ${user.username}
+Вік: ${user.age}
+Місто: ${user.location}
+Про себе: ${user.about}`;
+      } else {
+        caption = `Ім'я: ${user.username}
+Вік: ${user.age}
+Місто: ${user.location}`;
+      }
+      await ctx.replyWithPhoto(user.photoId, {
+        caption,
+        reply_markup: {
+          keyboard: [['❤️', '👎']],
+          resize_keyboard: true,
+        },
+      });
+    } else {
+      await ctx.reply(
+        'Більше немає людей, які підходять під твої запити',
+        Markup.removeKeyboard()
+      );
+    }
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async showEvent(events: any, currentIndex: number, ctx: MySceneContext) {
+    const event = events[currentIndex];
+    if (event) {
+      const message = `Назва події: ${event.eventName}\nДата та час події: ${event.date}`;
+      const inlineKeyboardMarkup = Markup.inlineKeyboard([
+        Markup.button.callback(
+          '✅ Хочу піти',
+          `inviteToEvent:${event.eventName}:${event.date}`
+        ),
+        Markup.button.callback('❌ Наступна подія', `nextEvent`),
+      ]);
+
+      if (event.about) {
+        await ctx.reply(
+          `${message}\nДеталі: ${event.about}`,
+          inlineKeyboardMarkup
+        );
+      } else {
+        await ctx.reply(message, inlineKeyboardMarkup);
+      }
+    } else {
+      await ctx.reply('В тебе більше немає подій', Markup.removeKeyboard());
     }
   }
 }

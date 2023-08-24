@@ -46,12 +46,13 @@ class Bot {
       this.sceneGenerator.eventNameScene(),
       this.sceneGenerator.eventTimeScene(),
       this.sceneGenerator.eventAboutScene(),
-      this.sceneGenerator.eventAgeRangeScene(),
+      // this.sceneGenerator.eventAgeRangeScene(),
       this.sceneGenerator.userEventListScene(),
+      this.sceneGenerator.lookForMatchScene(),
       this.sceneGenerator.userFormScene(),
     ],
     {
-      ttl: 3600,
+      ttl: 2592000,
     }
   );
 
@@ -67,8 +68,65 @@ class Bot {
 🫂 Офіційний запуск повноцінного боту планується 25 серпня. Проте ти вже можеш створити й налаштувати свій профіль. Міцно обійняли тебе`);
       await ctx.scene.enter('greeting');
     });
+    const regex = /^(.+):(\d+):(.+)$/;
+    this.bot.action(regex, async (ctx) => {
+      const actionType = ctx.match[1];
+      const initiatorUserId = ctx.match[2];
+      const initiatorUsername = ctx.match[3];
+      let username = ctx.from?.username;
+      if (username) {
+        username = '@' + username;
+      }
+      const userLink = `tg://user?id=${ctx.from!.id}`;
+      if (actionType === 'likeEvent') {
+        try {
+          const mentionMessage =
+            username || `[${ctx.from?.first_name}](${userLink})`;
+          await ctx.telegram.sendMessage(
+            initiatorUserId,
+            `${mentionMessage} прийняв ваше твоє запрошення на подію. Обговори деталі...`,
+            { parse_mode: 'Markdown' }
+          );
+          await ctx.reply(
+            `${initiatorUsername}
+Ти прийняв запрошення на подію 🥳. Бажаю весело провести час 👋`,
+            { parse_mode: 'Markdown' }
+          );
+        } catch (error) {
+          console.error('Error sending notification:', error);
+        }
+      } else if (actionType === 'like') {
+        try {
+          const mentionMessage =
+            username || `[${ctx.from?.first_name}](${userLink})`;
+          await ctx.telegram.sendMessage(
+            initiatorUserId,
+            `${mentionMessage} Бажаю весело провести час 👋`,
+            { parse_mode: 'Markdown' }
+          );
+          await ctx.reply(
+            `${initiatorUsername}
+Бажаю весело провести час 👋`,
+            { parse_mode: 'Markdown' }
+          );
+        } catch (error) {
+          console.error('Error sending notification:', error);
+        }
+      }
+    });
     this.bot.command('events', async (ctx) => {
       await ctx.scene.enter('userEvents');
+    });
+    this.bot.command('people', async (ctx) => {
+      await ctx.scene.enter('lookForMatch');
+    });
+    this.bot.command('help', async (ctx) => {
+      await ctx.reply(
+        `🦸‍♀️ Маєш питання або пропозиції?
+      
+Пиши нам сюди [Олексій](tg://user?id=546195130)`,
+        { parse_mode: 'Markdown' }
+      );
     });
     this.bot.command('profile', async (ctx) => {
       await ctx.scene.enter('userform');
