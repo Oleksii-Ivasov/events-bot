@@ -7,6 +7,9 @@ import axios from 'axios';
 import { IConfigService } from '../models/config.interface';
 import { Event } from '../models/event.interface';
 import { EventModel } from '../models/event.schema';
+import Fuse from 'fuse.js';
+import fs from 'fs';
+//import readline from 'readline';
 
 export class SceneGenerator {
   constructor(
@@ -198,6 +201,84 @@ export class SceneGenerator {
       }
     });
     location.on('text', async (ctx) => {
+      const rawData = fs.readFileSync('./UA.json', 'utf8'); // Update the path
+      const dataArray = JSON.parse(rawData);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const cityNamesArray: any[] = [];
+      dataArray.forEach(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (entry: { type: string; public_name: string; name: any }) => {
+          const type = entry.type.toLowerCase();
+          const isState = type === 'state';
+          const nameToUse = isState ? entry.public_name : entry.name;
+          if (
+            ['city', 'urban', 'settlement', 'village', 'state'].includes(type)
+          ) {
+            let variations = [
+              nameToUse.en
+                .toLowerCase()
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, ''),
+              nameToUse.ru
+                .toLowerCase()
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, ''),
+              nameToUse.uk
+                .toLowerCase()
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, ''),
+            ];
+            let original = nameToUse.uk;
+            if (isState) {
+              original = nameToUse.uk.replace(/ обл\.$/, ' область');
+              variations = variations.map((variation) =>
+                variation.replace(/ обл\.$/, ' область')
+              );
+            }
+            cityNamesArray.push({ variations, original, type });
+          }
+        }
+      );
+      let userInput = ctx.message.text;
+      const isInputEnglish = /[a-zA-Z]/.test(userInput);
+      if (isInputEnglish) {
+        userInput = userInput
+          .trim()
+          .toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '');
+      } else {
+        userInput = userInput.trim().toLowerCase();
+      }
+      console.log(userInput);
+      const options = {
+        includeScore: true,
+        keys: ['variations'],
+        threshold: 0.2
+      };
+      const bestMatches = [];
+      const priorityOrder = ['city', 'urban', 'state', 'settlement', 'village'];
+      for (const type of priorityOrder) {
+        const typeMatches = cityNamesArray.filter((item) => item.type === type);
+        const fuse = new Fuse(typeMatches, options);
+        const result = fuse.search(userInput);
+
+        if (result.length > 0) {
+          bestMatches.push(result[0]);
+        }
+      }
+
+      if (bestMatches.length > 0) {
+        console.log('Best match: ', bestMatches[0])
+      } else {
+       await ctx.reply('Не знаємо таке місто, перевір правильність написання')
+      }
+      // if (matchedCity) {
+      //   console.log(matchedCity);
+      //   console.log(matchedCity.original);
+      //   //this.userForm.location = matchedCity.original;
+      // }
+
       this.userForm.location = ctx.message.text;
       await ctx.scene.enter('photo');
     });
@@ -206,7 +287,50 @@ export class SceneGenerator {
     });
 
     return location;
+    // function mapLatinToCyrillic(character: string, nextCharacter?: string): string {
+    //   const lowercaseCharacter = character.toLowerCase()
+    //   const latinToCyrillicMap: { [key: string]: string } = {
+    //     a: 'а',
+    //     b: 'б',
+    //     c: 'ц',
+    //     d: 'д',
+    //     e: 'е',
+    //     f: 'ф',
+    //     g: 'г',
+    //     h: 'х',
+    //     i: 'и',
+    //     j: 'й',
+    //     k: 'к',
+    //     l: 'л',
+    //     m: 'м',
+    //     n: 'н',
+    //     o: 'о',
+    //     p: 'п',
+    //     q: 'к',
+    //     r: 'р',
+    //     s: 'с',
+    //     t: 'т',
+    //     u: 'у',
+    //     v: 'в',
+    //     w: 'в',
+    //     x: 'кс',
+    //     y: 'и',
+    //     z: 'з',
+    //     ь: nextCharacter && /[аеиоуяю]/.test(nextCharacter) ? '' : 'ь',
+    //   };
+    //   return latinToCyrillicMap[lowercaseCharacter] || character;
+    // }
   }
+  //    fuzzyMatchCityName(query, normalizedCityNamesArray) {
+  //     const fuseOptions = {
+  //         keys: ['name'], // 'name' is the property to search on
+  //     };
+
+  //     const fuse = new Fuse(normalizedCityNamesArray, fuseOptions);
+  //     const searchResults = fuse.search(query);
+
+  //     return searchResults.map(result => result.item);
+  // }
   photoScene(): Scenes.BaseScene<MySceneContext> {
     const photo = new Scenes.BaseScene<MySceneContext>('photo');
     photo.enter(async (ctx) => {
@@ -733,7 +857,7 @@ export class SceneGenerator {
         `🦸‍♀️ Маєш питання або пропозиції?
       
 Пиши нам сюди [Олексій](tg://user?id=546195130)`,
-{ parse_mode: 'Markdown' }
+        { parse_mode: 'Markdown' }
       );
     });
     scene.command('profile', async (ctx) => {
