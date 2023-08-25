@@ -10,7 +10,8 @@ const userFormSchema = new mongoose.Schema({
     default: undefined,
   },
   lookingFor: mongoose.Schema.Types.Mixed,
-  location: {
+  location: String,
+  actualLocation: {
     type: mongoose.Schema.Types.Mixed,
     validate: {
       validator: function (

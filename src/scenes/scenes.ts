@@ -192,10 +192,12 @@ export class SceneGenerator {
     location.on('location', async (ctx) => {
       try {
         const { latitude, longitude } = ctx.message.location;
-        this.userForm.actualLocation = await this.getUserCityFromCoordinates(
+        const userLocationName = await this.getUserCityFromCoordinates(
           latitude,
           longitude
         );
+        this.userForm.actualLocation = userLocationName;
+        this.userForm.location = userLocationName;
         await ctx.scene.enter('photo');
       } catch (error) {
         ctx.reply('Упс... Відбулася помилка');
@@ -244,7 +246,7 @@ export class SceneGenerator {
       } else {
         userInput = userInput.trim().toLowerCase();
       }
-      
+
       const options = {
         includeScore: true,
         keys: ['variations'],
@@ -550,7 +552,7 @@ export class SceneGenerator {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const query: any = {
           userId: { $ne: userId },
-          location: this.userForm.location,
+          actuallocation: this.userForm.actualLocation,
           gender:
             this.userForm.lookingFor === 'both'
               ? { $in: ['male', 'female'] }
@@ -700,7 +702,7 @@ export class SceneGenerator {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const query: any = {
         userId: { $ne: this.userForm.userId },
-        location: this.userForm.location,
+        actualLocation: this.userForm.actualLocation,
         gender:
           this.userForm.lookingFor === 'both'
             ? { $in: ['male', 'female'] }
@@ -866,6 +868,7 @@ export class SceneGenerator {
               lookingFor: userForm.lookingFor,
               age: userForm.age,
               about: userForm.about,
+              actualLocation: userForm.actualLocation,
               location: userForm.location,
               photoId: userForm.photoId,
             },
