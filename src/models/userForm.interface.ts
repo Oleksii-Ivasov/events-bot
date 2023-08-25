@@ -6,8 +6,8 @@ export interface UserForm  {
     lookingFor: 'male' | 'female' | 'both'
     age: number,
     about: string | undefined
-    //location: string,
-    location: {
+    location: string,
+    actualLocation: {
         longitude: number,
         latitude: number
     } | string,

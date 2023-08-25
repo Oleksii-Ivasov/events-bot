@@ -24,10 +24,11 @@ export class SceneGenerator {
     lookingFor: 'both',
     age: NaN,
     about: undefined,
-    location: {
+    actualLocation: {
       longitude: NaN,
       latitude: NaN,
     },
+    location: '',
     photoId: '',
   };
   event: Event = {
@@ -191,7 +192,7 @@ export class SceneGenerator {
     location.on('location', async (ctx) => {
       try {
         const { latitude, longitude } = ctx.message.location;
-        this.userForm.location = await this.getUserCityFromCoordinates(
+        this.userForm.actualLocation = await this.getUserCityFromCoordinates(
           latitude,
           longitude
         );
@@ -201,32 +202,25 @@ export class SceneGenerator {
       }
     });
     location.on('text', async (ctx) => {
-      const rawData = fs.readFileSync('./UA.json', 'utf8'); // Update the path
+      const rawData = fs.readFileSync('./UA.json', 'utf8');
       const dataArray = JSON.parse(rawData);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const cityNamesArray: any[] = [];
+
       dataArray.forEach(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (entry: { type: string; public_name: string; name: any }) => {
           const type = entry.type.toLowerCase();
           const isState = type === 'state';
           const nameToUse = isState ? entry.public_name : entry.name;
+
           if (
             ['city', 'urban', 'settlement', 'village', 'state'].includes(type)
           ) {
             let variations = [
-              nameToUse.en
-                .toLowerCase()
-                .normalize('NFD')
-                .replace(/[\u0300-\u036f]/g, ''),
-              nameToUse.ru
-                .toLowerCase()
-                .normalize('NFD')
-                .replace(/[\u0300-\u036f]/g, ''),
-              nameToUse.uk
-                .toLowerCase()
-                .normalize('NFD')
-                .replace(/[\u0300-\u036f]/g, ''),
+              nameToUse.en.toLowerCase(),
+              nameToUse.ru.toLowerCase(),
+              nameToUse.uk.toLowerCase(),
             ];
             let original = nameToUse.uk;
             if (isState) {
@@ -250,37 +244,37 @@ export class SceneGenerator {
       } else {
         userInput = userInput.trim().toLowerCase();
       }
-      console.log(userInput);
+      
       const options = {
         includeScore: true,
         keys: ['variations'],
-        threshold: 0.2
+        threshold: 0.2,
       };
-      const bestMatches = [];
       const priorityOrder = ['city', 'urban', 'state', 'settlement', 'village'];
+      const matchingCities = [];
       for (const type of priorityOrder) {
-        const typeMatches = cityNamesArray.filter((item) => item.type === type);
-        const fuse = new Fuse(typeMatches, options);
-        const result = fuse.search(userInput);
-
-        if (result.length > 0) {
-          bestMatches.push(result[0]);
+        const citiesOfType = cityNamesArray.filter(
+          (item) => item.type === type
+        );
+        const fuse = new Fuse(citiesOfType, options);
+        const bestMatches = fuse.search(userInput);
+        const matchingOfType = bestMatches.filter((match) =>
+          priorityOrder.includes(match.item.type)
+        );
+        if (matchingOfType.length > 0) {
+          matchingCities.push(matchingOfType[0]);
         }
       }
 
-      if (bestMatches.length > 0) {
-        console.log('Best match: ', bestMatches[0])
+      if (matchingCities.length > 0) {
+        this.userForm.actualLocation =
+          matchingCities[0].item.original.toLowerCase();
+        this.userForm.location = ctx.message.text;
+        await ctx.reply(`Твоє місто: ${matchingCities[0].item.original}`);
+        await ctx.scene.enter('photo');
       } else {
-       await ctx.reply('Не знаємо таке місто, перевір правильність написання')
+        await ctx.reply('Не знаємо таке місто, перевір правильність написання');
       }
-      // if (matchedCity) {
-      //   console.log(matchedCity);
-      //   console.log(matchedCity.original);
-      //   //this.userForm.location = matchedCity.original;
-      // }
-
-      this.userForm.location = ctx.message.text;
-      await ctx.scene.enter('photo');
     });
     location.on('message', async (ctx) => {
       await ctx.reply('Напиши назву свого міста або відправ місцезнаходження');
@@ -321,16 +315,6 @@ export class SceneGenerator {
     //   return latinToCyrillicMap[lowercaseCharacter] || character;
     // }
   }
-  //    fuzzyMatchCityName(query, normalizedCityNamesArray) {
-  //     const fuseOptions = {
-  //         keys: ['name'], // 'name' is the property to search on
-  //     };
-
-  //     const fuse = new Fuse(normalizedCityNamesArray, fuseOptions);
-  //     const searchResults = fuse.search(query);
-
-  //     return searchResults.map(result => result.item);
-  // }
   photoScene(): Scenes.BaseScene<MySceneContext> {
     const photo = new Scenes.BaseScene<MySceneContext>('photo');
     photo.enter(async (ctx) => {
