@@ -5,10 +5,7 @@ const userFormSchema = new mongoose.Schema({
   username: String,
   gender: String,
   age: Number,
-  about: {
-    type: String,
-    default: undefined,
-  },
+  about: String,
   lookingFor: mongoose.Schema.Types.Mixed,
   location: String,
   actualLocation: {
@@ -28,6 +25,7 @@ const userFormSchema = new mongoose.Schema({
     },
   },
   photoId: String,
+  isActive: Boolean
 });
 
 export const UserFormModel = mongoose.model('UserForm', userFormSchema);

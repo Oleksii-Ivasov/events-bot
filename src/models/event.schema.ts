@@ -9,6 +9,7 @@ const eventSchema = new mongoose.Schema({
     type: String,
     default: undefined,
   },
+  lookingFor: String
   //ageRange: String
 });
 export const EventModel = mongoose.model('Event', eventSchema);

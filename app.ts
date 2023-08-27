@@ -1,4 +1,4 @@
-import { Scenes, Telegraf } from 'telegraf';
+import { Markup, Scenes, Telegraf } from 'telegraf';
 import { SceneGenerator } from './src/scenes/scenes';
 import { MySceneContext } from './src/models/context.interface';
 import LocalSession from 'telegraf-session-local';
@@ -21,10 +21,14 @@ const client = new MongoClient(uri, {
 async function run() {
   try {
     await client.connect();
-    await client.db('cluster0').command({ ping: 1 });
+    const db = client.db('cluster0');
+    await db.command({ ping: 1 });
     console.log(
       'Pinged your deployment. You successfully connected to MongoDB!'
     );
+    await db
+      .collection('viewed_profiles')
+      .createIndex({ expiryTimestamp: 1 }, { expireAfterSeconds: 0 });
   } finally {
     await client.close();
   }
@@ -48,10 +52,12 @@ class Bot {
       this.sceneGenerator.eventNameScene(),
       this.sceneGenerator.eventTimeScene(),
       this.sceneGenerator.eventAboutScene(),
+      this.sceneGenerator.eventLookigForScene(),
       // this.sceneGenerator.eventAgeRangeScene(),
-      this.sceneGenerator.userEventListScene(),
+      this.sceneGenerator.eventListScene(),
       this.sceneGenerator.lookForMatchScene(),
       this.sceneGenerator.userFormScene(),
+      this.sceneGenerator.userFormEditScene(),
     ],
     {
       ttl: 2592000,
@@ -71,11 +77,12 @@ class Bot {
       console.log(`Server is running on port ${PORT}`);
     });
     this.bot.command('start', async (ctx) => {
-      await ctx.reply(`Вітаємо в ком'юніті Дай Винника! 👋
-          
-👩 Дай Винник — незвичайний бот, який наповнить твоє життя приємними моментами. Він допоможе тобі знайти компаньона на якусь подію або просто прогулянку, а також знайти другу половинку, друга або подругу!
-                  
-🫂 Офіційний запуск повноцінного боту планується 25 серпня. Проте ти вже можеш створити й налаштувати свій профіль. Міцно обійняли тебе`);
+      await ctx.reply(`Вітаємо в ком'юніті Дай Винника! 👋🏻
+
+🧔🏼‍♀️ Дай Винник — незвичайний бот, який наповнить твоє життя приємними моментами. Він допоможе тобі знайти компаньона на якусь подію або просто прогулянку в парку, а також знайти другу половинку, друга або подругу!
+      
+Міцно обійняли тебе🫂
+      `);
       await ctx.scene.enter('greeting');
     });
     const regex = /^(.+):(\d+):(.+)$/;
@@ -83,6 +90,14 @@ class Bot {
       const actionType = ctx.match[1];
       const initiatorUserId = ctx.match[2];
       const initiatorUsername = ctx.match[3];
+      const updatedKeyboard = {
+        inline_keyboard: [
+          [
+            { text: '❤️', callback_data: 'liked', disabled: true },
+            { text: '👎', callback_data: 'disliked', disabled: true },
+          ],
+        ],
+      };
       let username = ctx.from?.username;
       if (username) {
         username = '@' + username;
@@ -98,10 +113,11 @@ class Bot {
             { parse_mode: 'Markdown' }
           );
           await ctx.reply(
-            `${initiatorUsername}
+            `Посилання на профіль: ${initiatorUsername}
 Ти прийняв запрошення на подію 🥳. Бажаю весело провести час 👋`,
             { parse_mode: 'Markdown' }
           );
+          await ctx.editMessageReplyMarkup(updatedKeyboard);
         } catch (error) {
           console.error('Error sending notification:', error);
         }
@@ -111,7 +127,8 @@ class Bot {
             username || `[${ctx.from?.first_name}](${userLink})`;
           await ctx.telegram.sendMessage(
             initiatorUserId,
-            `${mentionMessage} Бажаю весело провести час 👋`,
+            `Посилання на профіль: ${mentionMessage}
+Бажаю весело провести час 👋`,
             { parse_mode: 'Markdown' }
           );
           await ctx.reply(
@@ -119,13 +136,21 @@ class Bot {
 Бажаю весело провести час 👋`,
             { parse_mode: 'Markdown' }
           );
+          await ctx.editMessageReplyMarkup(updatedKeyboard);
         } catch (error) {
           console.error('Error sending notification:', error);
         }
+      } else if (actionType === 'dislikeEvent') {
+        await ctx.reply(
+          'Ти відхилив пропозицію. Наступного разу точно пощастить 🤞🏻',
+          Markup.removeKeyboard()
+        );
+        await ctx.editMessageReplyMarkup(updatedKeyboard);
+        await ctx.scene.enter('greeting');
       }
     });
     this.bot.command('events', async (ctx) => {
-      await ctx.scene.enter('userEvents');
+      await ctx.scene.enter('eventList');
     });
     this.bot.command('people', async (ctx) => {
       await ctx.scene.enter('lookForMatch');
@@ -140,6 +165,19 @@ class Bot {
     });
     this.bot.command('profile', async (ctx) => {
       await ctx.scene.enter('userform');
+    });
+    this.bot.command('donate', async (ctx) => {
+      await ctx.reply(
+        `Щоб розвивати наш бот та залучати більше користувачів, нам потрібно багато кави та енергетиків 🫠
+          
+Ваші внески сприятимуть довшій життєдіяльності як бота, так і його розробників )`,
+        Markup.inlineKeyboard([
+          Markup.button.url(
+            '🫶🏻 Зробити внесок',
+            'https://send.monobank.ua/jar/9dL7twbPY8'
+          ),
+        ])
+      );
     });
     this.bot.on('message', (ctx) => ctx.reply('Спробуй /start'));
   }
