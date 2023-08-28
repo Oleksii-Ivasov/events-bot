@@ -334,14 +334,15 @@ export class SceneGenerator {
       await this.saveUserFormToDatabase(this.userForm);
       let caption = '';
       caption = `Так виглядає твій профіль:
-Ім'я: ${this.userForm.username}
-Вік: ${this.userForm.age}
-Місто: ${this.userForm.location}`;
+*Ім'я:* ${this.userForm.username}
+*Вік:* ${this.userForm.age}
+*Місто:* ${this.userForm.location}`;
       if (this.userForm.about) {
-        caption = caption + `\n\nПро себе: ${this.userForm.about}`;
+        caption = caption + `\n\n*Про себе:* ${this.userForm.about}`;
       }
       await ctx.replyWithPhoto(this.userForm.photoId, {
         caption,
+        parse_mode: 'Markdown',
         reply_markup: Markup.keyboard([
           ['👫 Звичайний пошук', '🍾 Події'],
         ]).resize().reply_markup,
@@ -377,13 +378,16 @@ export class SceneGenerator {
           Object.assign(this.userForm, userForm);
           let caption = '';
           caption = `Так виглядає твій профіль:
-Ім'я: ${userForm.username}
-Вік: ${userForm.age}
-Місто: ${userForm.location}`;
+*Ім'я:* ${userForm.username}
+*Вік:* ${userForm.age}
+*Місто:* ${userForm.location}`;
           if (userForm.about) {
-            caption = caption + `\n\nПро себе: ${userForm.about}`;
+            caption = caption + `\n\n*Про себе:* ${userForm.about}`;
           }
-          await ctx.replyWithPhoto(userForm.photoId, { caption });
+          await ctx.replyWithPhoto(userForm.photoId, {
+            caption,
+            parse_mode: 'Markdown',
+          });
           await ctx.reply(
             `✍🏻Редагувати профіль
 🆕Додати подію
@@ -432,7 +436,7 @@ export class SceneGenerator {
               const userId = +ctx.match[1];
               await this.client.connect();
               const db = this.client.db('cluster0');
-             await db.collection('events').deleteOne({ userId: userId });
+              await db.collection('events').deleteOne({ userId: userId });
               await ctx.deleteMessage();
             });
           });
@@ -719,9 +723,19 @@ export class SceneGenerator {
         await ctx.scene.enter('greeting');
       }
     });
+
     eventList.action('nextEvent', async (ctx) => {
       currentEventIndex++;
       await this.showEvent(events, currentEventIndex, ctx);
+      // const updatedInlineKeyboard = Markup.inlineKeyboard([
+      //   [
+      //     // Example: Modify the clicked button to be disabled
+      //     { text: '✅ Хочу піти', callback_data: '', disabled: true },
+      //     // Example: Keep the nextEvent button as it is
+      //     { text: '❌ Наступна подія', callback_data: 'nextEvent' },
+      //   ],
+      // ]);
+      // await ctx.editMessageText(updatedInlineKeyboard);
     });
     const regex = new RegExp(/^inviteToEvent:(.*):(.*):(.*)$/);
     eventList.action(regex, async (ctx) => {
@@ -731,13 +745,14 @@ export class SceneGenerator {
       const eventUser = await this.getUserFormDataFromDatabase(eventUserId);
       if (eventUser) {
         const caption =
-          `Ім'я: ${eventUser.username}
-Вік: ${eventUser.age}
-Місто: ${eventUser.location}` +
-          (eventUser.about ? `\n\nПро себе: ${eventUser.about}` : '');
+          `*Ім'я:* ${eventUser.username}
+*Вік:* ${eventUser.age}
+*Місто:* ${eventUser.location}` +
+          (eventUser.about ? `\n\n*Про себе:* ${eventUser.about}` : '');
         await ctx.reply('Ініціатор запрошення на подію 👇🏻');
         await ctx.replyWithPhoto(eventUser.photoId, {
           caption,
+          parse_mode: 'Markdown',
           reply_markup: {
             keyboard: [['❤️', '👎']],
             resize_keyboard: true,
@@ -762,11 +777,11 @@ export class SceneGenerator {
                   [
                     {
                       text: '❤️',
-                      callback_data: `likeEvent:${userForm.userId}:${mentionMessage}`,
+                      callback_data: `likeEvent:${userId}:${mentionMessage}`,
                     },
                     {
                       text: '👎',
-                      callback_data: `dislikeEvent:${userForm.userId}:${ctx.from?.username}`,
+                      callback_data: `dislikeEvent:${userId}:${ctx.from?.username}`,
                     },
                   ],
                 ],
@@ -976,7 +991,7 @@ export class SceneGenerator {
             await db.collection('viewed_profiles').insertOne({
               viewerUserId: viewerUserId,
               viewedUserId: previousUserId,
-              timestamp: new Date(),
+              expiryTimestamp: new Date(Date.now() + 10 * 1000),
             });
           }
           let username = ctx.from?.username;
@@ -1079,7 +1094,7 @@ export class SceneGenerator {
           await db.collection('viewed_profiles').insertOne({
             viewerUserId: viewerUserId,
             viewedUserId: previousUserId,
-            expiryTimestamp: new Date(Date.now() + 60 * 1000),
+            expiryTimestamp: new Date(Date.now() + 10 * 1000),
           });
         }
       }
@@ -1251,11 +1266,13 @@ export class SceneGenerator {
     const user = userArrayFromDB[currentIndex];
     if (user) {
       const caption =
-        `Ім'я: ${user.username}
-Вік: ${user.age}
-Місто: ${user.location}` + (user.about ? `\n\nПро себе: ${user.about}` : '');
+        `*Ім'я:* ${user.username}
+*Вік:* ${user.age}
+*Місто:* ${user.location}` +
+        (user.about ? `\n\n*Про себе:* ${user.about}` : '');
       await ctx.replyWithPhoto(user.photoId, {
         caption,
+        parse_mode: 'Markdown',
         reply_markup: {
           keyboard: [['❤️', '👎']],
           resize_keyboard: true,
@@ -1272,11 +1289,14 @@ export class SceneGenerator {
   async showEvent(events: Event[], currentIndex: number, ctx: MySceneContext) {
     const event = events[currentIndex];
     if (event) {
+      console.log(event);
+      const userId = event.userId.toString();
+      console.log(encodeURIComponent(userId));
       const message = `Назва події: ${event.eventName}\nДата та час події: ${event.date}`;
       const inlineKeyboardMarkup = Markup.inlineKeyboard([
         Markup.button.callback(
           '✅ Хочу піти',
-          `inviteToEvent:${event.eventName}:${event.date}:${event.userId}`
+          `inviteToEvent:exampleEvent:2023-08-30:12345`
         ),
         Markup.button.callback('❌ Наступна подія', `nextEvent`),
       ]);
