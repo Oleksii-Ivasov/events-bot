@@ -25,7 +25,12 @@ const userFormSchema = new mongoose.Schema({
     },
   },
   photoId: String,
-  isActive: Boolean
+  isActive: Boolean,
+  subscriptionType: {
+    type: String,
+    enum: ['free', 'premium'],
+  },
+  subscriptionExpirationDate: Date,
 });
 
 export const UserFormModel = mongoose.model('UserForm', userFormSchema);

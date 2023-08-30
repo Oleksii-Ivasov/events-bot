@@ -29,6 +29,9 @@ async function run() {
     await db
       .collection('viewed_profiles')
       .createIndex({ expiryTimestamp: 1 }, { expireAfterSeconds: 0 });
+      await db
+      .collection('bans')
+      .createIndex({ banExpirationDate: 1 }, { expireAfterSeconds: 0 });
   } finally {
     await client.close();
   }
@@ -58,6 +61,10 @@ class Bot {
       this.sceneGenerator.lookForMatchScene(),
       this.sceneGenerator.userFormScene(),
       this.sceneGenerator.userFormEditScene(),
+      this.sceneGenerator.donateScene(),
+      this.sceneGenerator.helpScene(),
+      this.sceneGenerator.moderateScene(),
+      this.sceneGenerator.paymentScene()
     ],
     {
       ttl: 2592000,
@@ -77,77 +84,86 @@ class Bot {
       console.log(`Server is running on port ${PORT}`);
     });
     this.bot.command('start', async (ctx) => {
-      await ctx.reply(`Вітаємо в ком'юніті Дай Винника! 👋🏻
+      await ctx.reply(`Вітаємо в ком'юніті Crush! 👋🏻
 
-🧔🏼‍♀️ Дай Винник — незвичайний бот, який наповнить твоє життя приємними моментами. Він допоможе тобі знайти компаньона на якусь подію або просто прогулянку в парку, а також знайти другу половинку, друга або подругу!
+💝 Crush — український бот знайомств, який наповнить твоє життя приємними моментами. Він допоможе тобі знайти компаньона на якусь подію або просто прогулянку в парку, а також знайти кохану людину, друга або подругу!
       
-Міцно обійняли тебе🫂
-      `);
+Команда crush’а міцно обійняла тебе🫂`);
       await ctx.scene.enter('greeting');
     });
     const regex = /^(.+):(\d+):(.+)$/;
     this.bot.action(regex, async (ctx) => {
       const actionType = ctx.match[1];
-      const initiatorUserId = ctx.match[2];
+      const initiatorUserId = +ctx.match[2];
       const initiatorUsername = ctx.match[3];
-      const updatedKeyboard = {
-        inline_keyboard: [
-          [
-            { text: '❤️', callback_data: 'liked', disabled: true },
-            { text: '👎', callback_data: 'disliked', disabled: true },
-          ],
-        ],
-      };
-      let username = ctx.from?.username;
-      if (username) {
-        username = '@' + username;
-      }
+      // const updatedKeyboard = {
+      //   inline_keyboard: [
+      //     [
+      //       { text: '❤️', callback_data: 'liked', disabled: true },
+      //       { text: '👎', callback_data: 'disliked', disabled: true },
+      //     ],
+      //   ],
+      // };
+      const username = ctx.from?.username;
       const userLink = `tg://user?id=${ctx.from!.id}`;
-      if (actionType === 'likeEvent') {
-        try {
-          const mentionMessage =
-            username || `[${ctx.from?.first_name}](${userLink})`;
-          await ctx.telegram.sendMessage(
-            initiatorUserId,
-            `${mentionMessage} прийняв ваше твоє запрошення на подію. Обговори деталі...`,
-            { parse_mode: 'Markdown' }
-          );
-          await ctx.reply(
-            `Посилання на профіль: ${initiatorUsername}
-Ти прийняв запрошення на подію 🥳. Бажаю весело провести час 👋`,
-            { parse_mode: 'Markdown' }
-          );
-          await ctx.editMessageReplyMarkup(updatedKeyboard);
-        } catch (error) {
-          console.error('Error sending notification:', error);
+      const mentionMessage = username
+        ? `@${username}`
+        : `[${ctx.from?.first_name}](${userLink})`;
+      try {
+        if (actionType === 'likeEvent' || actionType === 'like') {
+          await client.connect();
+          const db = client.db('cluster0');
+          const user = await db
+            .collection('users')
+            .findOne({ userId: ctx.from!.id });
+
+          if (user) {
+            const commonMessage = `Посилання на профіль ${mentionMessage}`;
+            const userDetails = `🧘🏼*Краш:* ${user.username}, ${user.age}, ${
+              user.location
+            }${user.about ? `, ${user.about}` : ''}`;
+
+            const message =
+              actionType === 'likeEvent'
+                ? `Твій краш прийняв твоє запрошення 😍\n${commonMessage}\n${userDetails}\nОбговори деталі та приємно проведіть цей час 🫶🏻`
+                : `Твій краш відповів тобі взаємністю 😍\n${commonMessage}\n${userDetails}\nБажаю приємно провести час 🫶🏻`;
+
+            await Promise.all([
+              ctx.telegram.sendPhoto(initiatorUserId, user.photoId, {
+                caption: message,
+                parse_mode: 'Markdown',
+              }),
+              ctx.reply(
+                `Посилання на профіль: ${initiatorUsername}\nБажаю весело провести час 👋`,
+                Markup.keyboard([['👫 Звичайний пошук', '🍾 Події']])
+                  .resize()
+                  .oneTime()
+              ),
+              ctx.editMessageReplyMarkup(undefined),
+            ]);
+          }
         }
-      } else if (actionType === 'like') {
-        try {
-          const mentionMessage =
-            username || `[${ctx.from?.first_name}](${userLink})`;
-          await ctx.telegram.sendMessage(
-            initiatorUserId,
-            `Посилання на профіль: ${mentionMessage}
-Бажаю весело провести час 👋`,
-            { parse_mode: 'Markdown' }
-          );
-          await ctx.reply(
-            `${initiatorUsername}
-Бажаю весело провести час 👋`,
-            { parse_mode: 'Markdown' }
-          );
-          await ctx.editMessageReplyMarkup(updatedKeyboard);
-        } catch (error) {
-          console.error('Error sending notification:', error);
-        }
-      } else if (actionType === 'dislikeEvent') {
-        await ctx.reply(
-          'Ти відхилив пропозицію. Наступного разу точно пощастить 🤞🏻',
-          Markup.removeKeyboard()
-        );
-        await ctx.editMessageReplyMarkup(updatedKeyboard);
-        await ctx.scene.enter('greeting');
+      } catch (error) {
+        console.error('Error sending notification:', error);
       }
+    });
+    this.bot.action(/dislike(Event)?/, async (ctx) => {
+      const actionType = ctx.match[1] ? 'dislikeEvent' : 'dislike';
+      const message =
+        actionType === 'dislikeEvent' ? 'пропозицію' : 'вподобайку';
+      await ctx.reply(
+        `Ти відхилив ${message}. Наступного разу точно пощастить 🤞🏻`,
+        Markup.keyboard([['👫 Звичайний пошук', '🍾 Події']])
+          .resize()
+          .oneTime()
+      );
+      await ctx.editMessageReplyMarkup(undefined);
+    });
+    this.bot.hears('👫 Звичайний пошук', async (ctx) => {
+      await ctx.scene.enter('lookForMatch');
+    });
+    this.bot.hears('🍾 Події', async (ctx) => {
+      await ctx.scene.enter('eventList');
     });
     this.bot.command('events', async (ctx) => {
       await ctx.scene.enter('eventList');
@@ -156,28 +172,21 @@ class Bot {
       await ctx.scene.enter('lookForMatch');
     });
     this.bot.command('help', async (ctx) => {
-      await ctx.reply(
-        `🦸‍♀️ Маєш питання або пропозиції?
-      
-Пиши нам сюди [Олексій](tg://user?id=546195130)`,
-        { parse_mode: 'Markdown' }
-      );
+     await ctx.scene.enter('help');
     });
     this.bot.command('profile', async (ctx) => {
       await ctx.scene.enter('userform');
     });
+    this.bot.command('premium', async ctx => {
+      await ctx.scene.enter('payment')
+    })
     this.bot.command('donate', async (ctx) => {
-      await ctx.reply(
-        `Щоб розвивати наш бот та залучати більше користувачів, нам потрібно багато кави та енергетиків 🫠
-          
-Ваші внески сприятимуть довшій життєдіяльності як бота, так і його розробників )`,
-        Markup.inlineKeyboard([
-          Markup.button.url(
-            '🫶🏻 Зробити внесок',
-            'https://send.monobank.ua/jar/9dL7twbPY8'
-          ),
-        ])
-      );
+     await ctx.scene.enter('donate');
+    });
+    this.bot.command('moderate', async (ctx) => {
+      if (ctx.from.id === parseInt(this.configService.get('TG_MODERATOR_ID'), 10)) {
+        await ctx.scene.enter('moderate');
+      }
     });
     this.bot.on('message', (ctx) => ctx.reply('Спробуй /start'));
   }
