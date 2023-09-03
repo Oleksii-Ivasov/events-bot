@@ -6,6 +6,7 @@ import { IConfigService } from './src/models/config.interface';
 import { ConfigService } from './src/config/config.service';
 import { MongoClient, ServerApiVersion } from 'mongodb';
 import express from 'express';
+import bodyParser from 'body-parser';
 const configService = new ConfigService();
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const app = express();
@@ -75,13 +76,23 @@ class Bot {
     this.bot = new Telegraf(this.configService.get('TOKEN'));
     this.bot.use(new LocalSession({ database: 'sessions.json' }).middleware());
     this.bot.use(this.stage.middleware());
-    app.use(express.json());
+    app.use(bodyParser.urlencoded({ extended: true }));
     app.get('/', (req, res) => {
       res.send('Hello, this is your Express app!');
     });
     const PORT = process.env.PORT || 3000;
     app.listen(PORT, () => {
       console.log(`Server is running on port ${PORT}`);
+    });
+    app.post('/premium', (req, res) => {
+      // Handle WayForPay webhook callback here
+      const callbackData = req.body;
+    console.log(callbackData)
+      // Process the callback data
+      // Check payment status and details
+      // Update user subscription, mark payment as successful, etc.
+    
+      res.status(200).send('Callback received');
     });
     this.bot.command('start', async (ctx) => {
       await ctx.reply(`Вітаємо в ком'юніті Crush! 👋🏻

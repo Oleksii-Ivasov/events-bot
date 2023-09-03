@@ -31,7 +31,7 @@ export class SceneGenerator {
     photoId: '',
     isActive: true,
     subscriptionType: 'free',
-    subscriptionExpirationDate : null
+    subscriptionExpirationDate: null,
   };
   event: Event = {
     userId: NaN,
@@ -1215,18 +1215,29 @@ export class SceneGenerator {
         await ctx.reply('Порушники закінчились', Markup.removeKeyboard());
         return;
       }
-    
+
       const reportedUser = reportedUsers[currentIndex];
-      const matchingComplaint = complaints.find(complaint => complaint.userId === reportedUser.userId);
-      const complaintsNum = matchingComplaint ? matchingComplaint.complaintsNum : 0;
+      const matchingComplaint = complaints.find(
+        (complaint) => complaint.userId === reportedUser.userId
+      );
+      const complaintsNum = matchingComplaint
+        ? matchingComplaint.complaintsNum
+        : 0;
       const action = ctx.match?.[0] || '';
-    
+
       if (action === 'Забанити') {
         await this.client.connect();
         const db = this.client.db('cluster0');
-        const banData = await db.collection('bans').findOne({ userId: reportedUser.userId });    
+        const banData = await db
+          .collection('bans')
+          .findOne({ userId: reportedUser.userId });
         const banCount = banData ? banData.banCount : 0;
-        const banDuration = banCount === 0 ? 60 * 1000 : banCount === 1 ? 30 * 24 * 60 * 60 * 1000 : 10 * 365 * 24 * 60 * 60 * 1000;
+        const banDuration =
+          banCount === 0
+            ? 60 * 1000
+            : banCount === 1
+            ? 30 * 24 * 60 * 60 * 1000
+            : 10 * 365 * 24 * 60 * 60 * 1000;
         const banExpirationDate = new Date(Date.now() + banDuration);
         await db.collection('bans').updateOne(
           { userId: reportedUser.userId },
@@ -1239,38 +1250,46 @@ export class SceneGenerator {
           { upsert: true }
         );
       }
-    
+
       currentIndex++;
       await this.client.connect();
       const db = this.client.db('cluster0');
-      await db.collection('complaints').deleteOne({ userId: reportedUser.userId });
+      await db
+        .collection('complaints')
+        .deleteOne({ userId: reportedUser.userId });
       if (reportedUsers[currentIndex]) {
-        await this.sendReportedProfile(ctx, reportedUsers[currentIndex], complaintsNum);
+        await this.sendReportedProfile(
+          ctx,
+          reportedUsers[currentIndex],
+          complaintsNum
+        );
       } else {
         await ctx.reply('Порушники закінчились', Markup.removeKeyboard());
       }
     });
-    
+
     return moderate;
   }
   paymentScene(): Scenes.BaseScene<MySceneContext> {
     const payment = new Scenes.BaseScene<MySceneContext>('payment');
     payment.enter(async (ctx) => {
-    const userId = ctx.from!.id;
-    const user = await this.getUserFormDataFromDatabase(userId)
-    if (user && user.subscriptionType === 'premium') {
-      await ctx.reply('You are already subscribed to premium.');
-      return;
-    } else {
-      const paymentLink = 'your-generated-payment-link';
+      const userId = ctx.from!.id;
+      const user = await this.getUserFormDataFromDatabase(userId);
+      if (user && user.subscriptionType === 'premium') {
+        await ctx.reply('You are already subscribed to premium.');
+        return;
+      } else {
+        const paymentLink =
+          'https://secure.wayforpay.com/button/ba17f8efa23b2';
+        const message = `To subscribe to premium, please proceed with the payment by clicking the link below:\n\n${paymentLink}`;
 
-      const message = `To subscribe to premium, please proceed with the payment by clicking the link below:\n\n${paymentLink}`;
-  
-      await ctx.reply(message, Markup.removeKeyboard());
-    }
-  });
-  return payment;
-}
+        await ctx.reply(message,  Markup.inlineKeyboard([
+          Markup.button.url('Придбати підписку', paymentLink),
+        ]));
+      }
+    });
+    return payment;
+  }
 
   donateScene(): Scenes.BaseScene<MySceneContext> {
     const donate = new Scenes.BaseScene<MySceneContext>('donate');
@@ -1313,8 +1332,10 @@ export class SceneGenerator {
     complaintsNum: number
   ) {
     await this.client.connect();
-  const db = this.client.db('cluster0');
-  const banData = await db.collection('bans').findOne({ userId: reportedUser.userId });
+    const db = this.client.db('cluster0');
+    const banData = await db
+      .collection('bans')
+      .findOne({ userId: reportedUser.userId });
     const message = `На цього користувача надійшла скарга:
 *Кількість скарг:* ${complaintsNum}
 *Кількість банів:* ${banData ? banData.banCount : 0}
@@ -1357,9 +1378,9 @@ export class SceneGenerator {
     scene.command('donate', async (ctx) => {
       await ctx.scene.enter('donate');
     });
-    scene.command('premium', async ctx => {
-      await ctx.scene.enter('payment')
-    })
+    scene.command('premium', async (ctx) => {
+      await ctx.scene.enter('payment');
+    });
     scene.hears('👫 Звичайний пошук', async (ctx) => {
       await ctx.scene.enter('lookForMatch');
     });
@@ -1393,7 +1414,7 @@ export class SceneGenerator {
               photoId: userForm.photoId,
               isActive: userForm.isActive,
               subscriptionType: userForm.subscriptionType,
-              subscriptionExpirationDate: userForm.subscriptionExpirationDate
+              subscriptionExpirationDate: userForm.subscriptionExpirationDate,
             },
           }
         );
