@@ -76,8 +76,7 @@ class Bot {
     this.bot = new Telegraf(this.configService.get('TOKEN'));
     this.bot.use(new LocalSession({ database: 'sessions.json' }).middleware());
     this.bot.use(this.stage.middleware());
-    //app.use(bodyParser.urlencoded({ extended: true }));
-    app.use(bodyParser.json());
+    app.use(bodyParser.urlencoded({ extended: true }));
     app.get('/', (req, res) => {
       res.send('Hello, this is your Express app!');
     });
