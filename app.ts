@@ -76,7 +76,8 @@ class Bot {
     this.bot = new Telegraf(this.configService.get('TOKEN'));
     this.bot.use(new LocalSession({ database: 'sessions.json' }).middleware());
     this.bot.use(this.stage.middleware());
-    app.use(bodyParser.urlencoded({ extended: true }));
+    //app.use(bodyParser.urlencoded({ extended: true }));
+    app.use(bodyParser.json());
     app.get('/', (req, res) => {
       res.send('Hello, this is your Express app!');
     });
@@ -87,6 +88,14 @@ class Bot {
     app.post('/premium', (req, res) => {
       const callbackData = req.body;
     console.log(callbackData)
+      if (callbackData.transactionStatus === 'Approved') {
+        // The payment was approved, you can grant the user a premium
+        // Implement your logic here
+        console.log('Payment was approved. Granting premium...');
+      } else {
+        // Handle other transaction statuses if needed
+        console.log(`Payment status: ${callbackData.transactionStatus}`);
+      }
       res.status(200).send('Callback received');
     });
     this.bot.command('start', async (ctx) => {
