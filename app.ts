@@ -99,10 +99,11 @@ class Bot {
           time,
           signature,
         };
-        console.log(responseObject);
+        console.log(JSON.stringify(responseObject));
         res.json(responseObject);
         this.bot.telegram.sendMessage(userId[1], 'В тебе тепер є преміум');
       } else {
+        console.log(data)
         this.bot.telegram.sendMessage(userId[1], 'Упс, схоже щось пішло не так. Спробуй потім');
       }
     }
