@@ -1329,6 +1329,7 @@ export class SceneGenerator {
         axios
           .post('https://api.wayforpay.com/api', paymentRequest)
           .then(async (response) => {
+            console.log(response)
             if (response.data.reason === 'Ok') {
               const invoiceUrl = response.data.invoiceUrl;
               await ctx.reply(
