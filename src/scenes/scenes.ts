@@ -1282,7 +1282,7 @@ export class SceneGenerator {
         return;
       } else {
         const merchantAccount = 't_me_bbcec';
-        const orderReference = `ORDER_${userId}`;
+        const orderReference = `ORDER_${Date.now()}_${userId}`;
         const orderDate = Math.floor(new Date().getTime() / 1000);
         const currency = 'UAH';
         const serviceUrl = this.configService.get('SERVICE_URL');
@@ -1329,7 +1329,6 @@ export class SceneGenerator {
         axios
           .post('https://api.wayforpay.com/api', paymentRequest)
           .then(async (response) => {
-            console.log(response)
             if (response.data.reason === 'Ok') {
               const invoiceUrl = response.data.invoiceUrl;
               await ctx.reply(

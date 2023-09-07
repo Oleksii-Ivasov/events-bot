@@ -77,7 +77,7 @@ class Bot {
     const transactionStatusMatch = dataString.match(
       /"transactionStatus.":."([^"]+)\\"/
     );
-    const userId = dataString.match(/"orderReference\\":\\"ORDER_(\d+)\\"/);
+    const userId = dataString.match(/"orderReference\\":\\"ORDER_\d+_(\d+)\\"/);
     if (transactionStatusMatch) {
       console.log('transactionStatus: ', transactionStatusMatch[1]);
       if (transactionStatusMatch[1] === 'Approved') {
