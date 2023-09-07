@@ -71,6 +71,25 @@ class Bot {
       ttl: 2592000,
     }
   );
+  async handlePremiumPayment(req: express.Request, res: express.Response) {
+    const data = req.body;
+    const dataString = JSON.stringify(data);
+    const transactionStatusMatch = dataString.match(
+      /"transactionStatus.":."([^"]+)\\"/
+    );
+    const userId = dataString.match(/"orderReference\\":\\"ORDER_(\d+)\\"/);
+    if (transactionStatusMatch) {
+      console.log('transactionStatus: ', transactionStatusMatch[1]);
+      if (transactionStatusMatch[1] === 'Approved') {
+        if (userId) {
+          console.log(userId[1]);
+          this.bot.telegram.sendMessage(userId[1], 'В тебе тепер є преміум');
+        }
+        console.log('Payment successful:', data);
+        res.status(200).send('Callback received');
+      }
+    }
+  }
 
   constructor(private readonly configService: IConfigService) {
     this.bot = new Telegraf(this.configService.get('TOKEN'));
@@ -83,28 +102,6 @@ class Bot {
     const PORT = process.env.PORT || 3000;
     app.listen(PORT, () => {
       console.log(`Server is running on port ${PORT}`);
-    });
-    app.post('/premium', (req, res) => {
-      const data = req.body;
-      const dataString = JSON.stringify(data);
-      console.log('Data String:', dataString);
-      const transactionStatusMatch = dataString.match(
-        /"transactionStatus.":."([^"]+)\\"/
-      );
-      const userId = dataString.match(
-        /"transactionStatus.":."([^"]+)\\"/
-      );
-      if (transactionStatusMatch) {
-        console.log('transactionStatus: ', transactionStatusMatch[1]);
-        if (transactionStatusMatch[1] === 'Approved') {
-          if (userId) {
-            console.log(userId[1])
-          }
-          console.log('Payment successful:', data);
-
-          res.status(200).send('Callback received');
-        }
-      }
     });
     this.bot.command('start', async (ctx) => {
       await ctx.reply(`Вітаємо в ком'юніті Crush! 👋🏻
@@ -218,6 +215,7 @@ class Bot {
 
   init() {
     this.bot.launch({ dropPendingUpdates: true });
+    app.post('/premium', this.handlePremiumPayment.bind(this));
   }
 }
 
