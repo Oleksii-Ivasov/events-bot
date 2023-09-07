@@ -85,13 +85,8 @@ class Bot {
       console.log(`Server is running on port ${PORT}`);
     });
     app.post('/premium', (req, res) => {
-      // Handle WayForPay webhook callback here
       const callbackData = req.body;
     console.log(callbackData)
-      // Process the callback data
-      // Check payment status and details
-      // Update user subscription, mark payment as successful, etc.
-    
       res.status(200).send('Callback received');
     });
     this.bot.command('start', async (ctx) => {
@@ -203,7 +198,7 @@ class Bot {
   }
 
   init() {
-    this.bot.launch();
+    this.bot.launch({dropPendingUpdates: true});
   }
 }
 

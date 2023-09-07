@@ -9,6 +9,7 @@ import { Event } from '../models/event.interface';
 import { EventModel } from '../models/event.schema';
 import Fuse from 'fuse.js';
 import fs from 'fs';
+import crypto from 'crypto';
 
 export class SceneGenerator {
   constructor(
@@ -1279,13 +1280,67 @@ export class SceneGenerator {
         await ctx.reply('You are already subscribed to premium.');
         return;
       } else {
-        const paymentLink =
-          'https://secure.wayforpay.com/button/ba17f8efa23b2';
-        const message = `To subscribe to premium, please proceed with the payment by clicking the link below:\n\n${paymentLink}`;
+        const merchantAccount = 't_me_bbcec';
+        const orderReference = `ORDER_${Date.now()}_${userId}`;
+        const orderDate = Math.floor(new Date().getTime() / 1000);
+        const currency = 'UAH';
+        const serviceUrl = this.configService.get('SERVICE_URL');
+        const merchantDomainName = this.configService.get(
+          'MERCHANT_DOMAIN_NAME'
+        );
+        const merchantSecretKey = this.configService.get('MERCHANT_SECRET_KEY');
+        const productName = ['Преміум підписка'];
+        const productCount = [1];
+        const productPrice = [1];
+        const orderTimeout = 49000;
+        const amount = productPrice.reduce((total, price, index) => {
+          return total + price * productCount[index];
+        }, 0);
+        const merchantAuthType = 'SimpleSignature';
 
-        await ctx.reply(message,  Markup.inlineKeyboard([
-          Markup.button.url('Придбати підписку', paymentLink),
-        ]));
+        const stringToSign = `${merchantAccount};${merchantDomainName};${orderReference};${orderDate};${amount};${currency};${productName};${productCount};${productPrice}`;
+
+        const hmac = crypto.createHmac('md5', merchantSecretKey);
+        hmac.update(stringToSign, 'utf-8');
+        const merchantSignature = hmac.digest('hex');
+
+        const paymentRequest = {
+          transactionType: 'CREATE_INVOICE',
+          merchantAccount,
+          merchantAuthType,
+          merchantDomainName,
+          merchantSignature,
+          apiVersion: 2,
+          language: 'ua',
+          serviceUrl,
+          orderReference,
+          orderDate,
+          amount,
+          currency,
+          orderTimeout,
+          productName,
+          productPrice,
+          productCount,
+          paymentSystems:
+            'card;googlePay;applePay;privat24;visaCheckout;masterPass',
+        };
+
+        axios
+          .post('https://api.wayforpay.com/api', paymentRequest)
+          .then(async (response) => {
+            if (response.data.reason === 'Ok') {
+              const invoiceUrl = response.data.invoiceUrl;
+              await ctx.reply(
+                `Купити підписку на місяць за 80 гривень`,
+                Markup.inlineKeyboard([
+                  Markup.button.url('Купити підписку', invoiceUrl),
+                ])
+              );
+            }
+          })
+          .catch((error) => {
+            console.error('WayForPay Error:', error);
+          });
       }
     });
     return payment;
