@@ -7,6 +7,7 @@ import { ConfigService } from './src/config/config.service';
 import { MongoClient, ServerApiVersion } from 'mongodb';
 import express from 'express';
 import bodyParser from 'body-parser';
+import crypto from 'crypto';
 const configService = new ConfigService();
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const app = express();
@@ -73,20 +74,42 @@ class Bot {
   );
   async handlePremiumPayment(req: express.Request, res: express.Response) {
     const data = req.body;
+
     const dataString = JSON.stringify(data);
+    const orderReference = dataString.match(
+      /"orderReference\\":\\"(ORDER_\d+_\d+)\\"/
+    );
+    const status = 'accept';
+    const time = Math.floor(Date.now() / 1000);
     const transactionStatusMatch = dataString.match(
       /"transactionStatus.":."([^"]+)\\"/
     );
     const userId = dataString.match(/"orderReference\\":\\"ORDER_\d+_(\d+)\\"/);
     if (transactionStatusMatch) {
       console.log('transactionStatus: ', transactionStatusMatch[1]);
-      if (transactionStatusMatch[1] === 'Approved') {
-        if (userId) {
-          console.log(userId[1]);
-          this.bot.telegram.sendMessage(userId[1], 'В тебе тепер є преміум');
-        }
+      if (
+        transactionStatusMatch[1] === 'Approved' &&
+        userId &&
+        orderReference
+      ) {
+        console.log(userId[1]);
         console.log('Payment successful:', data);
-        res.status(200).send('Callback received');
+        const concatenatedString = `${orderReference[1]};${status};${time}`;
+        console.log(concatenatedString);
+        const signature = crypto
+          .createHmac('md5', this.configService.get('MERCHANT_SECRET_KEY'))
+          .update(concatenatedString)
+          .digest('hex');
+
+        const responseObject = {
+          orderReference,
+          status,
+          time,
+          signature,
+        };
+        console.log('response');
+        res.json(responseObject);
+        this.bot.telegram.sendMessage(userId[1], 'В тебе тепер є преміум');
       }
     }
   }
