@@ -1275,6 +1275,7 @@ export class SceneGenerator {
     const payment = new Scenes.BaseScene<MySceneContext>('payment');
     payment.enter(async (ctx) => {
       const userId = ctx.from!.id;
+      console.log('payment scene')
       const user = await this.getUserFormDataFromDatabase(userId);
       if (user && user.subscriptionType === 'premium') {
         await ctx.reply('You are already subscribed to premium.');
@@ -1324,7 +1325,7 @@ export class SceneGenerator {
           paymentSystems:
             'card;googlePay;applePay;privat24;visaCheckout;masterPass',
         };
-
+        console.log('payment send req')
         axios
           .post('https://api.wayforpay.com/api', paymentRequest)
           .then(async (response) => {
