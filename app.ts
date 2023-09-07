@@ -85,31 +85,25 @@ class Bot {
       /"transactionStatus.":."([^"]+)\\"/
     );
     const userId = dataString.match(/"orderReference\\":\\"ORDER_\d+_(\d+)\\"/);
-    if (transactionStatusMatch) {
-      console.log('transactionStatus: ', transactionStatusMatch[1]);
-      if (
-        transactionStatusMatch[1] === 'Approved' &&
-        userId &&
-        orderReference
-      ) {
-        console.log(userId[1]);
-        console.log('Payment successful:', data);
+    if (userId && orderReference) {
+      if (transactionStatusMatch && transactionStatusMatch[1] === 'Approved') {
         const concatenatedString = `${orderReference[1]};${status};${time}`;
-        console.log(concatenatedString);
         const signature = crypto
           .createHmac('md5', this.configService.get('MERCHANT_SECRET_KEY'))
-          .update(concatenatedString)
+          .update(concatenatedString, 'utf-8')
           .digest('hex');
 
         const responseObject = {
-          orderReference,
+          orderReference: orderReference[1],
           status,
           time,
           signature,
         };
-        console.log('response');
+        console.log(responseObject);
         res.json(responseObject);
         this.bot.telegram.sendMessage(userId[1], 'В тебе тепер є преміум');
+      } else {
+        this.bot.telegram.sendMessage(userId[1], 'Упс, схоже щось пішло не так. Спробуй потім');
       }
     }
   }
