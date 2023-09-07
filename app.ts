@@ -30,7 +30,7 @@ async function run() {
     await db
       .collection('viewed_profiles')
       .createIndex({ expiryTimestamp: 1 }, { expireAfterSeconds: 0 });
-      await db
+    await db
       .collection('bans')
       .createIndex({ banExpirationDate: 1 }, { expireAfterSeconds: 0 });
   } finally {
@@ -65,7 +65,7 @@ class Bot {
       this.sceneGenerator.donateScene(),
       this.sceneGenerator.helpScene(),
       this.sceneGenerator.moderateScene(),
-      this.sceneGenerator.paymentScene()
+      this.sceneGenerator.paymentScene(),
     ],
     {
       ttl: 2592000,
@@ -85,17 +85,26 @@ class Bot {
       console.log(`Server is running on port ${PORT}`);
     });
     app.post('/premium', (req, res) => {
-      const callbackData = req.body;
-    console.log(callbackData)
-      if (callbackData.transactionStatus === 'Approved') {
-        // The payment was approved, you can grant the user a premium
-        // Implement your logic here
-        console.log('Payment was approved. Granting premium...');
-      } else {
-        // Handle other transaction statuses if needed
-        console.log(`Payment status: ${callbackData.transactionStatus}`);
+      const data = req.body;
+      const dataString = JSON.stringify(data);
+      console.log('Data String:', dataString);
+      const transactionStatusMatch = dataString.match(
+        /"transactionStatus.":."([^"]+)\\"/
+      );
+      const userId = dataString.match(
+        /"transactionStatus.":."([^"]+)\\"/
+      );
+      if (transactionStatusMatch) {
+        console.log('transactionStatus: ', transactionStatusMatch[1]);
+        if (transactionStatusMatch[1] === 'Approved') {
+          if (userId) {
+            console.log(userId[1])
+          }
+          console.log('Payment successful:', data);
+
+          res.status(200).send('Callback received');
+        }
       }
-      res.status(200).send('Callback received');
     });
     this.bot.command('start', async (ctx) => {
       await ctx.reply(`Вітаємо в ком'юніті Crush! 👋🏻
@@ -186,19 +195,21 @@ class Bot {
       await ctx.scene.enter('lookForMatch');
     });
     this.bot.command('help', async (ctx) => {
-     await ctx.scene.enter('help');
+      await ctx.scene.enter('help');
     });
     this.bot.command('profile', async (ctx) => {
       await ctx.scene.enter('userform');
     });
-    this.bot.command('premium', async ctx => {
-      await ctx.scene.enter('payment')
-    })
+    this.bot.command('premium', async (ctx) => {
+      await ctx.scene.enter('payment');
+    });
     this.bot.command('donate', async (ctx) => {
-     await ctx.scene.enter('donate');
+      await ctx.scene.enter('donate');
     });
     this.bot.command('moderate', async (ctx) => {
-      if (ctx.from.id === parseInt(this.configService.get('TG_MODERATOR_ID'), 10)) {
+      if (
+        ctx.from.id === parseInt(this.configService.get('TG_MODERATOR_ID'), 10)
+      ) {
         await ctx.scene.enter('moderate');
       }
     });
@@ -206,7 +217,7 @@ class Bot {
   }
 
   init() {
-    this.bot.launch({dropPendingUpdates: true});
+    this.bot.launch({ dropPendingUpdates: true });
   }
 }
 
