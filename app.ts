@@ -8,6 +8,8 @@ import { MongoClient, ServerApiVersion } from 'mongodb';
 import express from 'express';
 import bodyParser from 'body-parser';
 import crypto from 'crypto';
+import cron from 'node-cron';
+
 const configService = new ConfigService();
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const app = express();
@@ -39,7 +41,30 @@ async function run() {
   }
 }
 run().catch(console.dir);
+cron.schedule('* * * * *', async () => {
+  const currentDate = new Date();
 
+  await client.connect();
+  const db = client.db('cluster0');
+  const usersToCheck = await db
+    .collection('users')
+    .find({
+      isPremium: true,
+      premiumEndTime: { $lte: currentDate },
+    })
+    .toArray();
+console.log(usersToCheck);
+  for (const user of usersToCheck) {
+    console.log('Преміум кінчився')
+    await db.collection('users').findOneAndUpdate(
+      { userId: user.userId },
+      {
+        isPremium: false,
+        premiumEndTime: null,
+      }
+    );
+  }
+});
 class Bot {
   bot: Telegraf<MySceneContext>;
   sceneGenerator = new SceneGenerator(client, this.configService);
@@ -72,6 +97,7 @@ class Bot {
       ttl: 2592000,
     }
   );
+
   async handlePremiumPayment(req: express.Request, res: express.Response) {
     const data = req.body;
 
@@ -102,6 +128,20 @@ class Bot {
       console.log(JSON.stringify(responseObject));
       res.json(responseObject);
       if (transactionStatusMatch[1] === 'Approved') {
+        const subscriptionDurationMs = 5 * 60 * 1000; // 5 min
+        const premiumEndTime = new Date();
+        premiumEndTime.setTime(
+          premiumEndTime.getTime() + subscriptionDurationMs
+        );
+        await client.connect();
+        const db = client.db('cluster0');
+        await db.collection('users').findOneAndUpdate(
+          { userId: userId[1] },
+          {
+            isPremium: true,
+            premiumEndTime: premiumEndTime,
+          }
+        );
         this.bot.telegram.sendMessage(userId[1], 'В тебе тепер є преміум');
       } else {
         console.log(transactionStatusMatch[1]);
