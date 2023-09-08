@@ -59,8 +59,10 @@ console.log(usersToCheck);
     await db.collection('users').findOneAndUpdate(
       { userId: user.userId },
       {
-        isPremium: false,
-        premiumEndTime: null,
+        $set: {
+          isPremium: false,
+          premiumEndTime: null,
+        }
       }
     );
   }
@@ -138,8 +140,10 @@ class Bot {
         await db.collection('users').findOneAndUpdate(
           { userId: userId[1] },
           {
-            isPremium: true,
-            premiumEndTime: premiumEndTime,
+            $set: {
+              isPremium: true,
+              premiumEndTime: premiumEndTime,
+            }
           }
         );
         this.bot.telegram.sendMessage(userId[1], 'В тебе тепер є преміум');
