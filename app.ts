@@ -137,8 +137,9 @@ class Bot {
         );
         await client.connect();
         const db = client.db('cluster0');
+        console.log(+userId[1]);
         await db.collection('users').findOneAndUpdate(
-          { userId: userId[1] },
+          { userId: +userId[1] },
           {
             $set: {
               isPremium: true,
