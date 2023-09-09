@@ -10,14 +10,60 @@ import { EventModel } from '../models/event.schema';
 import Fuse from 'fuse.js';
 import fs from 'fs';
 import crypto from 'crypto';
+import cron from 'node-cron';
+
+const MAX_LIKES_LIMIT = 2;
 
 export class SceneGenerator {
   constructor(
     private readonly client: MongoClient,
     private configService: IConfigService
-  ) {}
+  ) {
+    cron.schedule('*/3 * * * *', async () => {
+      // every minute check
+      const currentDate = new Date();
+
+      await client.connect();
+      const db = client.db('cluster0');
+      const usersToResetLikes = await db
+        .collection('users')
+        .find({
+          isPremium: false,
+          likesSentCount: { $gt: 0 },
+        })
+        .toArray();
+      for (const user of usersToResetLikes) {
+        await db
+          .collection('users')
+          .updateOne({ userId: user.userId }, { $set: { likesSentCount: 0 } });
+        if (this.userForm.userId === user.userId) {
+          this.userForm.likesSentCount = 0;
+        }
+      }
+      const usersToCheck = await db
+        .collection('users')
+        .find({
+          isPremium: true,
+          premiumEndTime: { $lte: currentDate },
+        })
+        .toArray();
+      console.log(usersToCheck);
+      for (const user of usersToCheck) {
+        console.log('Преміум кінчився');
+        await db.collection('users').findOneAndUpdate(
+          { userId: user.userId },
+          {
+            $set: {
+              isPremium: false,
+              premiumEndTime: null,
+            },
+          }
+        );
+      }
+    });
+  }
   API_KEY = this.configService.get('API_KEY');
-  userForm: UserForm = {
+  userForm = new UserFormModel({
     userId: NaN,
     username: '',
     gender: 'male',
@@ -30,10 +76,11 @@ export class SceneGenerator {
     },
     location: '',
     photoId: '',
+    likesSentCount: 0,
     isActive: true,
-    subscriptionType: 'free',
-    subscriptionExpirationDate: null,
-  };
+    isPremium: false,
+    premiumEndTime: null,
+  });
   event: Event = {
     userId: NaN,
     eventId: NaN,
@@ -1008,6 +1055,26 @@ export class SceneGenerator {
       }
     });
     lookForMatch.hears('❤️', async (ctx) => {
+      if (
+        !this.userForm.isPremium &&
+        this.userForm.likesSentCount >= MAX_LIKES_LIMIT
+      ) {
+        await ctx.reply(
+          'Вибач, але ти досяг ліміту лайків на сьогодні, купи преміум підписку або почекай до завтра'
+        );
+        return;
+      }
+      if (!this.userForm.isPremium) {
+        this.userForm.likesSentCount++;
+        await this.client.connect();
+        const db = this.client.db('cluster0');
+        await db
+          .collection('users')
+          .updateOne(
+            { userId: this.userForm.userId },
+            { $set: { likesSentCount: this.userForm.likesSentCount } }
+          );
+      }
       currentUserIndex++;
       await this.sendUserDetails(
         userMatchForms as unknown as UserForm[],
@@ -1268,6 +1335,7 @@ export class SceneGenerator {
         await ctx.reply('Порушники закінчились', Markup.removeKeyboard());
       }
     });
+    this.addCommands(moderate);
 
     return moderate;
   }
@@ -1466,9 +1534,10 @@ export class SceneGenerator {
               actualLocation: userForm.actualLocation,
               location: userForm.location,
               photoId: userForm.photoId,
+              likesSentCount: userForm.likesSentCount,
               isActive: userForm.isActive,
-              subscriptionType: userForm.subscriptionType,
-              subscriptionExpirationDate: userForm.subscriptionExpirationDate,
+              subscriptionType: userForm.isPremium,
+              subscriptionExpirationDate: userForm.premiumEndTime,
             },
           }
         );

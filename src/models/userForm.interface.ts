@@ -1,10 +1,10 @@
 export interface UserForm {
   userId: number;
   username: string;
-  gender: 'male' | 'female';
-  lookingFor: 'male' | 'female' | 'both';
+  gender: string,
+  lookingFor: string,
   age: number;
-  about: string;
+  about?: string;
   location: string;
   actualLocation:
     | {
@@ -13,7 +13,8 @@ export interface UserForm {
       }
     | string;
   photoId: string;
+  likesSentCount: number,
   isActive: boolean;
-  subscriptionType: 'free' | 'premium';
-  subscriptionExpirationDate: Date| null;
+  isPremium: boolean;
+  premiumEndTime: Date| null;
 }

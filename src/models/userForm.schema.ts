@@ -1,15 +1,34 @@
 import mongoose from 'mongoose';
 
 const userFormSchema = new mongoose.Schema({
-  userId: Number,
-  username: String,
-  gender: String,
-  age: Number,
+  userId: {
+    type: Number,
+    required: true,
+  },
+  username: {
+    type: String,
+    required: true,
+  },
+  gender: {
+    type: String,
+    required: true,
+  },
+  age: {
+    type: Number,
+    required: true,
+  },
   about: String,
-  lookingFor: mongoose.Schema.Types.Mixed,
-  location: String,
+  lookingFor: {
+    type: String,
+    required: true,
+  },
+  location: {
+    type: String,
+    required: true,
+  },
   actualLocation: {
     type: mongoose.Schema.Types.Mixed,
+    required: true,
     validate: {
       validator: function (
         value:
@@ -24,13 +43,23 @@ const userFormSchema = new mongoose.Schema({
       message: 'Location must be an object or a string',
     },
   },
-  photoId: String,
-  isActive: Boolean,
-  subscriptionType: {
+  photoId: {
     type: String,
-    enum: ['free', 'premium'],
+    required: true,
   },
-  subscriptionExpirationDate: Date,
+  likesSentCount: {
+    type: Number,
+    required: true,
+  },
+  isActive: {
+    type: Boolean,
+    required: true,
+  },
+  isPremium: {
+    type: Boolean,
+    required: true,
+  },
+  premiumEndTime: { type: Date, default: null },
 });
 
 export const UserFormModel = mongoose.model('UserForm', userFormSchema);

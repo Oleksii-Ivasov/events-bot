@@ -8,7 +8,6 @@ import { MongoClient, ServerApiVersion } from 'mongodb';
 import express from 'express';
 import bodyParser from 'body-parser';
 import crypto from 'crypto';
-import cron from 'node-cron';
 
 const configService = new ConfigService();
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -41,32 +40,7 @@ async function run() {
   }
 }
 run().catch(console.dir);
-cron.schedule('* * * * *', async () => {
-  const currentDate = new Date();
 
-  await client.connect();
-  const db = client.db('cluster0');
-  const usersToCheck = await db
-    .collection('users')
-    .find({
-      isPremium: true,
-      premiumEndTime: { $lte: currentDate },
-    })
-    .toArray();
-console.log(usersToCheck);
-  for (const user of usersToCheck) {
-    console.log('Преміум кінчився')
-    await db.collection('users').findOneAndUpdate(
-      { userId: user.userId },
-      {
-        $set: {
-          isPremium: false,
-          premiumEndTime: null,
-        }
-      }
-    );
-  }
-});
 class Bot {
   bot: Telegraf<MySceneContext>;
   sceneGenerator = new SceneGenerator(client, this.configService);
@@ -130,7 +104,7 @@ class Bot {
       console.log(JSON.stringify(responseObject));
       res.json(responseObject);
       if (transactionStatusMatch[1] === 'Approved') {
-        const subscriptionDurationMs = 5 * 60 * 1000; // 5 min
+        const subscriptionDurationMs = 10 * 60 * 1000; // 10 min
         const premiumEndTime = new Date();
         premiumEndTime.setTime(
           premiumEndTime.getTime() + subscriptionDurationMs
@@ -144,6 +118,7 @@ class Bot {
             $set: {
               isPremium: true,
               premiumEndTime: premiumEndTime,
+              likesSentCount: 0
             }
           }
         );
