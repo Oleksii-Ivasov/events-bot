@@ -111,7 +111,6 @@ class Bot {
         );
         await client.connect();
         const db = client.db('cluster0');
-        console.log(+userId[1]);
         await db.collection('users').findOneAndUpdate(
           { userId: +userId[1] },
           {
@@ -203,6 +202,11 @@ class Bot {
                   .resize()
                   .oneTime()
               ),
+              await db.collection('users').updateOne({userId: user.userId}, {
+                $set: {
+                  lastActive: new Date().toLocaleString()
+                }
+              }),
               ctx.editMessageReplyMarkup(undefined),
             ]);
           }
@@ -221,6 +225,13 @@ class Bot {
           .resize()
           .oneTime()
       );
+      await client.connect();
+      const db = client.db('cluster0');
+      await db.collection('users').updateOne({userId: ctx.from!.id}, {
+        $set: {
+          lastActive: new Date().toLocaleString()
+        }
+      }),
       await ctx.editMessageReplyMarkup(undefined);
     });
     this.bot.hears('👫 Звичайний пошук', async (ctx) => {
@@ -243,6 +254,26 @@ class Bot {
     });
     this.bot.command('premium', async (ctx) => {
       await ctx.scene.enter('payment');
+    });
+    this.bot.command('premiumTest', async () => { // TEST FUNC DELETE IN PROD!!!!!
+      const subscriptionDurationMs = 10 * 60 * 1000; // 10 min
+      const premiumEndTime = new Date();
+      premiumEndTime.setTime(
+        premiumEndTime.getTime() + subscriptionDurationMs
+      );
+      await client.connect();
+      const db = client.db('cluster0');
+      await db.collection('users').updateOne(
+        { userId: this.configService.get('TG_MODERATOR_ID') },
+        {
+          $set: {
+            isPremium: true,
+            premiumEndTime: premiumEndTime,
+            likesSentCount: 0
+          }
+        }
+      );
+      this.bot.telegram.sendMessage(this.configService.get('TG_MODERATOR_ID'), 'В тебе тепер є преміум');
     });
     this.bot.command('donate', async (ctx) => {
       await ctx.scene.enter('donate');

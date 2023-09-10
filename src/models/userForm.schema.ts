@@ -45,6 +45,10 @@ const userFormSchema = new mongoose.Schema({
   },
   photoId: {
     type: String,
+    required: true
+  },
+  photoIds: {
+    type: [String],
     required: true,
   },
   likesSentCount: {
@@ -60,6 +64,10 @@ const userFormSchema = new mongoose.Schema({
     required: true,
   },
   premiumEndTime: { type: Date, default: null },
+  lastActive: {
+    type: String,
+    required: true
+  }
 });
 
 export const UserFormModel = mongoose.model('UserForm', userFormSchema);

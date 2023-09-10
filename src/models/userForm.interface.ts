@@ -12,9 +12,11 @@ export interface UserForm {
         latitude: number;
       }
     | string;
-  photoId: string;
+    photoId: string,
+  photoIds: string[];
   likesSentCount: number,
   isActive: boolean;
   isPremium: boolean;
   premiumEndTime: Date| null;
+lastActive: string
 }

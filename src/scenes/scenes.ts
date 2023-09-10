@@ -11,6 +11,7 @@ import Fuse from 'fuse.js';
 import fs from 'fs';
 import crypto from 'crypto';
 import cron from 'node-cron';
+import { InputMediaPhoto } from 'telegraf/typings/core/types/typegram';
 
 const MAX_LIKES_LIMIT = 2;
 
@@ -19,12 +20,30 @@ export class SceneGenerator {
     private readonly client: MongoClient,
     private configService: IConfigService
   ) {
-    cron.schedule('*/3 * * * *', async () => {
+    cron.schedule('*/59 * * * *', async () => {
       // every minute check
       const currentDate = new Date();
-
+      const inactiveThreshold = 5 * 60 * 1000; // 5 minutes
       await client.connect();
       const db = client.db('cluster0');
+      const users = await db.collection('users').find().toArray();
+
+      for (const user of users) {
+        const lastActiveTimestamp = new Date(user.lastActive).getTime();
+        const inactiveDuration = currentDate.getTime() - lastActiveTimestamp;
+
+        if (inactiveDuration >= inactiveThreshold) {
+          axios.post(
+            `https://api.telegram.org/bot${this.configService.get(
+              'TOKEN'
+            )}/sendMessage`,
+            {
+              chat_id: user.userId,
+              text: 'Тебе давно не було тут',
+            }
+          );
+        }
+      }
       const usersToResetLikes = await db
         .collection('users')
         .find({
@@ -47,10 +66,17 @@ export class SceneGenerator {
           premiumEndTime: { $lte: currentDate },
         })
         .toArray();
-      console.log(usersToCheck);
       for (const user of usersToCheck) {
-        console.log('Преміум кінчився');
-        await db.collection('users').findOneAndUpdate(
+        axios.post(
+          `https://api.telegram.org/bot${this.configService.get(
+            'TOKEN'
+          )}/sendMessage`,
+          {
+            chat_id: user.userId,
+            text: 'Преміум закінчився',
+          }
+        );
+        await db.collection('users').updateOne(
           { userId: user.userId },
           {
             $set: {
@@ -76,10 +102,12 @@ export class SceneGenerator {
     },
     location: '',
     photoId: '',
+    photoIds: [],
     likesSentCount: 0,
     isActive: true,
     isPremium: false,
     premiumEndTime: null,
+    lastActive: new Date().toLocaleString(),
   });
   event: Event = {
     userId: NaN,
@@ -102,6 +130,7 @@ export class SceneGenerator {
         );
       } else {
         await ctx.reply('⬇️⁣', Markup.removeKeyboard());
+        await this.registerUserLastActivity(user.userId);
       }
     });
     greeting.command('moderate', async (ctx) => {
@@ -376,11 +405,20 @@ export class SceneGenerator {
     //   return latinToCyrillicMap[lowercaseCharacter] || character;
     // }
   }
+  private maxPhotoCount: number = 1;
+  private mediaGroup: InputMediaPhoto[] = [];
+  private caption = '';
+  private isUploaded = false;
   photoScene(): Scenes.BaseScene<MySceneContext> {
     const photo = new Scenes.BaseScene<MySceneContext>('photo');
     photo.enter(async (ctx) => {
-      await ctx.reply('Обери своє найкраще фото, яке будуть бачити інші'),
-        Markup.removeKeyboard();
+      this.maxPhotoCount = this.userForm.isPremium ? 3 : 1;
+      this.userForm.photoIds = []; 
+      this.isUploaded = false;
+      const photoPrompt = this.userForm.isPremium
+        ? 'Обери свої найкращі фото (максимум 3), які будуть бачити інші'
+        : 'Обери своє найкраще фото, яке будуть бачити інші';
+      await ctx.reply(photoPrompt, Markup.removeKeyboard());
     });
     this.addCommands(photo);
     photo.on('photo', async (ctx) => {
@@ -390,23 +428,29 @@ export class SceneGenerator {
         const resolutionB = b.width * b.height;
         return resolutionB - resolutionA;
       });
-      this.userForm.photoId = photos[0].file_id;
-      await this.saveUserFormToDatabase(this.userForm);
-      let caption = '';
-      caption = `Так виглядає твій профіль:
-*Ім'я:* ${this.userForm.username}
-*Вік:* ${this.userForm.age}
-*Місто:* ${this.userForm.location}`;
-      if (this.userForm.about) {
-        caption = caption + `\n\n*Про себе:* ${this.userForm.about}`;
+      if (this.userForm.photoIds.length < this.maxPhotoCount) {
+        this.userForm.photoIds.push(photos[0].file_id);
       }
-      await ctx.replyWithPhoto(this.userForm.photoId, {
-        caption,
-        parse_mode: 'Markdown',
-        reply_markup: Markup.keyboard([
-          ['👫 Звичайний пошук', '🍾 Події'],
-        ]).resize().reply_markup,
-      });
+      if (this.userForm.photoIds.length < this.maxPhotoCount) {
+        await ctx.reply(
+          `Ти завантажив ${this.userForm.photoIds.length} з ${this.maxPhotoCount} доступних фото. Можеш зберегти фото або додати ще`,
+          Markup.keyboard([['Це все, зберегти фото']])
+            .oneTime()
+            .resize()
+        );
+      } else if (
+        this.userForm.photoIds.length === this.maxPhotoCount &&
+        !this.isUploaded 
+      ) {
+        this.isUploaded = true;
+        await this.saveUserFormToDatabase(this.userForm);
+        await ctx.scene.enter('userform')
+      }
+    });
+    photo.hears('Це все, зберегти фото', async (ctx) => {
+      this.isUploaded = true;
+      await this.saveUserFormToDatabase(this.userForm);
+      await ctx.scene.enter('userform')
     });
     photo.hears('👫 Звичайний пошук', async (ctx) => {
       await ctx.scene.enter('lookForMatch');
@@ -436,6 +480,7 @@ export class SceneGenerator {
         const userForm = await this.getUserFormDataFromDatabase(userId);
         if (userForm) {
           Object.assign(this.userForm, userForm);
+          await this.registerUserLastActivity(userForm.userId);
           let caption = '';
           caption = `Так виглядає твій профіль:
 *Ім'я:* ${userForm.username}
@@ -444,16 +489,19 @@ export class SceneGenerator {
           if (userForm.about) {
             caption = caption + `\n\n*Про себе:* ${userForm.about}`;
           }
-          await ctx.replyWithPhoto(userForm.photoId, {
-            caption,
-            parse_mode: 'Markdown',
-          });
+          this.mediaGroup = this.userForm.photoIds.map((photoId, index) => ({
+            type: 'photo',
+            media: photoId,
+            caption: index === 0 ? caption : undefined,
+            parse_mode: index === 0 ? 'Markdown' : undefined,
+          }));
+          await ctx.telegram.sendMediaGroup(userForm.userId, this.mediaGroup);
           await ctx.reply(
             `✍🏻Редагувати профіль
 🆕Додати подію
 🎟Мої події
 ❌Видалити профіль`,
-            Markup.keyboard([['✍🏻', '🆕', '🎟', '❌']]).resize()
+            Markup.keyboard([['✍🏻', '🆕', '🎟', '❌']]).oneTime().resize()
           );
           userFormScene.hears('✍🏻', async (ctx) => {
             await ctx.scene.enter('userformEdit');
@@ -779,6 +827,7 @@ export class SceneGenerator {
             Markup.removeKeyboard()
           );
         }
+        await this.registerUserLastActivity(userForm.userId);
       } else {
         await ctx.reply(
           'Щоб переглянути події створи свій профіль',
@@ -988,6 +1037,7 @@ export class SceneGenerator {
       currentUserIndex = 0;
       if (userFormData) {
         Object.assign(this.userForm, userFormData);
+        await this.registerUserLastActivity(userFormData.userId);
         await ctx.reply(
           `👫 Розпочинаємо звичайний пошук...
 
@@ -1055,6 +1105,7 @@ export class SceneGenerator {
       }
     });
     lookForMatch.hears('❤️', async (ctx) => {
+      await this.registerUserLastActivity(this.userForm.userId);
       if (
         !this.userForm.isPremium &&
         this.userForm.likesSentCount >= MAX_LIKES_LIMIT
@@ -1184,6 +1235,7 @@ export class SceneGenerator {
       //         });
     });
     lookForMatch.hears('👎', async (ctx) => {
+      await this.registerUserLastActivity(ctx.from.id);
       currentUserIndex++;
       await this.sendUserDetails(
         userMatchForms as unknown as UserForm[],
@@ -1344,7 +1396,7 @@ export class SceneGenerator {
     payment.enter(async (ctx) => {
       const userId = ctx.from!.id;
       const user = await this.getUserFormDataFromDatabase(userId);
-      if (user && user.subscriptionType === 'premium') {
+      if (user && user.isPremium) {
         await ctx.reply('You are already subscribed to premium.');
         return;
       } else {
@@ -1509,6 +1561,29 @@ export class SceneGenerator {
     scene.hears('🍾 Події', async (ctx) => {
       await ctx.scene.enter('eventList');
     });
+    scene.command('premiumTest', async (ctx) => {
+      // TEST FUNC DELETE IN PROD!!!!!
+      const subscriptionDurationMs = 10 * 60 * 1000; // 10 min
+      const premiumEndTime = new Date();
+      premiumEndTime.setTime(premiumEndTime.getTime() + subscriptionDurationMs);
+      await this.client.connect();
+      const db = this.client.db('cluster0');
+      const user = await db.collection('users').findOneAndUpdate(
+        { userId: +this.configService.get('TG_MODERATOR_ID') },
+        {
+          $set: {
+            isPremium: true,
+            premiumEndTime: premiumEndTime,
+            likesSentCount: 0,
+          },
+        }
+      );
+      console.log(user);
+      ctx.telegram.sendMessage(
+        this.configService.get('TG_MODERATOR_ID'),
+        'В тебе тепер є преміум'
+      );
+    });
   }
 
   async saveUserFormToDatabase(userForm: UserForm) {
@@ -1533,11 +1608,13 @@ export class SceneGenerator {
               about: userForm.about,
               actualLocation: userForm.actualLocation,
               location: userForm.location,
+              photoIds: userForm.photoIds,
               photoId: userForm.photoId,
               likesSentCount: userForm.likesSentCount,
               isActive: userForm.isActive,
-              subscriptionType: userForm.isPremium,
-              subscriptionExpirationDate: userForm.premiumEndTime,
+              isPremium: userForm.isPremium,
+              premiumEndTime: userForm.premiumEndTime,
+              lastActive: userForm.lastActive,
             },
           }
         );
@@ -1573,6 +1650,18 @@ export class SceneGenerator {
     } finally {
       await this.client.close();
     }
+  }
+  async registerUserLastActivity(userId: number) {
+    await this.client.connect();
+    const db = this.client.db('cluster0');
+    await db.collection('users').updateOne(
+      { userId },
+      {
+        $set: {
+          lastActive: new Date().toLocaleString(),
+        },
+      }
+    );
   }
   async getEventsFromDatabase(userId: number, userGender: string) {
     try {
@@ -1652,14 +1741,25 @@ export class SceneGenerator {
 *Вік:* ${user.age}
 *Місто:* ${user.location}` +
         (user.about ? `\n\n*Про себе:* ${user.about}` : '');
-      await ctx.replyWithPhoto(user.photoId, {
-        caption,
-        parse_mode: 'Markdown',
-        reply_markup: {
-          keyboard: [['❤️', '👎', 'Скарга']],
-          resize_keyboard: true,
-        },
-      });
+      // await ctx.replyWithPhoto(user.photoId, {
+      //   caption,
+      //   parse_mode: 'Markdown',
+      //   reply_markup: {
+      //     keyboard: [['❤️', '👎', 'Скарга']],
+      //     resize_keyboard: true,
+      //   },
+      // });
+      this.mediaGroup = user.photoIds.map((photoId, index) => ({
+        type: 'photo',
+        media: photoId,
+        caption: index === 0 ? caption : undefined,
+        parse_mode: index === 0 ? 'Markdown' : undefined,
+        // reply_markup: {
+        //   keyboard: [['❤️', '👎', 'Скарга']], 
+        //   resize_keyboard: true,
+        // },
+      }));
+      await ctx.telegram.sendMediaGroup(ctx.from!.id, this.mediaGroup);
       return user;
     } else {
       await ctx.reply(
