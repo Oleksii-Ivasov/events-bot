@@ -43,10 +43,6 @@ const userFormSchema = new mongoose.Schema({
       message: 'Location must be an object or a string',
     },
   },
-  photoId: {
-    type: String,
-    required: true
-  },
   photoIds: {
     type: [String],
     required: true,

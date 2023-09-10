@@ -62,6 +62,8 @@ class Bot {
       // this.sceneGenerator.eventAgeRangeScene(),
       this.sceneGenerator.eventListScene(),
       this.sceneGenerator.lookForMatchScene(),
+      this.sceneGenerator.complaintScene(),
+      this.sceneGenerator.likeArchiveScene(),
       this.sceneGenerator.userFormScene(),
       this.sceneGenerator.userFormEditScene(),
       this.sceneGenerator.donateScene(),
@@ -104,7 +106,7 @@ class Bot {
       console.log(JSON.stringify(responseObject));
       res.json(responseObject);
       if (transactionStatusMatch[1] === 'Approved') {
-        const subscriptionDurationMs = 10 * 60 * 1000; // 10 min
+        const subscriptionDurationMs = 60 * 60 * 1000; //60 min
         const premiumEndTime = new Date();
         premiumEndTime.setTime(
           premiumEndTime.getTime() + subscriptionDurationMs

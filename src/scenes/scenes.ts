@@ -101,7 +101,6 @@ export class SceneGenerator {
       latitude: NaN,
     },
     location: '',
-    photoId: '',
     photoIds: [],
     likesSentCount: 0,
     isActive: true,
@@ -406,14 +405,12 @@ export class SceneGenerator {
     // }
   }
   private maxPhotoCount: number = 1;
-  private mediaGroup: InputMediaPhoto[] = [];
-  private caption = '';
   private isUploaded = false;
   photoScene(): Scenes.BaseScene<MySceneContext> {
     const photo = new Scenes.BaseScene<MySceneContext>('photo');
     photo.enter(async (ctx) => {
       this.maxPhotoCount = this.userForm.isPremium ? 3 : 1;
-      this.userForm.photoIds = []; 
+      this.userForm.photoIds = [];
       this.isUploaded = false;
       const photoPrompt = this.userForm.isPremium
         ? 'Обери свої найкращі фото (максимум 3), які будуть бачити інші'
@@ -440,17 +437,17 @@ export class SceneGenerator {
         );
       } else if (
         this.userForm.photoIds.length === this.maxPhotoCount &&
-        !this.isUploaded 
+        !this.isUploaded
       ) {
         this.isUploaded = true;
         await this.saveUserFormToDatabase(this.userForm);
-        await ctx.scene.enter('userform')
+        await ctx.scene.enter('userform');
       }
     });
     photo.hears('Це все, зберегти фото', async (ctx) => {
       this.isUploaded = true;
       await this.saveUserFormToDatabase(this.userForm);
-      await ctx.scene.enter('userform')
+      await ctx.scene.enter('userform');
     });
     photo.hears('👫 Звичайний пошук', async (ctx) => {
       await ctx.scene.enter('lookForMatch');
@@ -489,19 +486,24 @@ export class SceneGenerator {
           if (userForm.about) {
             caption = caption + `\n\n*Про себе:* ${userForm.about}`;
           }
-          this.mediaGroup = this.userForm.photoIds.map((photoId, index) => ({
-            type: 'photo',
-            media: photoId,
-            caption: index === 0 ? caption : undefined,
-            parse_mode: index === 0 ? 'Markdown' : undefined,
-          }));
-          await ctx.telegram.sendMediaGroup(userForm.userId, this.mediaGroup);
+          const mediaGroup: InputMediaPhoto[] = this.userForm.photoIds.map(
+            (photoId, index) => ({
+              type: 'photo',
+              media: photoId,
+              caption: index === 0 ? caption : undefined,
+              parse_mode: index === 0 ? 'Markdown' : undefined,
+            })
+          );
+          await ctx.replyWithMediaGroup(mediaGroup);
           await ctx.reply(
-            `✍🏻Редагувати профіль
-🆕Додати подію
-🎟Мої події
-❌Видалити профіль`,
-            Markup.keyboard([['✍🏻', '🆕', '🎟', '❌']]).oneTime().resize()
+            `✍🏻 — Редагувати профіль
+🆕 — Додати подію
+🎟 — Мої події
+🗄 — Архів лайків
+❌ — Приховати профіль`,
+            Markup.keyboard([['✍🏻', '🆕', '🎟', '🗄', '❌']])
+              .oneTime()
+              .resize()
           );
           userFormScene.hears('✍🏻', async (ctx) => {
             await ctx.scene.enter('userformEdit');
@@ -548,6 +550,9 @@ export class SceneGenerator {
               await ctx.deleteMessage();
             });
           });
+          userFormScene.hears('🗄', async (ctx) => {
+            await ctx.scene.enter('likeArchive');
+          });
           userFormScene.hears('❌', async (ctx) => {
             await ctx.reply(
               `Після підтвердження, ваша анкета не буде відображатися іншим користувачам.
@@ -576,20 +581,26 @@ export class SceneGenerator {
           });
           userFormScene.hears('❌ Ні, повернутись назад', async (ctx) => {
             await ctx.reply(
-              `✍🏻Редагувати профіль
-  🆕Додати подію
-  🎟Мої події
-  ❌Видалити профіль`,
-              Markup.keyboard([['✍🏻', '🆕', '🎟', '❌']]).resize()
+              `✍🏻 — Редагувати профіль
+  🆕 — Додати подію
+  🎟 — Мої події
+  🗄 — Архів лайків
+  ❌ — Приховати профіль`,
+              Markup.keyboard([['✍🏻', '🆕', '🎟', '🗄', '❌']])
+                .oneTime()
+                .resize()
             );
           });
           userFormScene.on('message', async (ctx) => {
             await ctx.reply(
-              `✍🏻Редагувати профіль
-🆕Додати подію
-🎟Мої події
-❌Видалити профіль`,
-              Markup.keyboard([['✍🏻', '🆕', '🎟', '❌']]).resize()
+              `✍🏻 — Редагувати профіль
+  🆕 — Додати подію
+  🎟 — Мої події
+  🗄 — Архів лайків
+  ❌ — Приховати профіль`,
+              Markup.keyboard([['✍🏻', '🆕', '🎟', '🗄', '❌']])
+                .oneTime()
+                .resize()
             );
           });
         } else {
@@ -1022,7 +1033,7 @@ export class SceneGenerator {
     });
     return eventList;
   }
-
+private reportedUserId: number | undefined = undefined;
   lookForMatchScene(): Scenes.BaseScene<MySceneContext> {
     const lookForMatch = new Scenes.BaseScene<MySceneContext>('lookForMatch');
     let currentUserIndex = 0;
@@ -1044,7 +1055,7 @@ export class SceneGenerator {
 Сподіваємось, ти знайдеш свого краша
             
 👀 Пам ятайте, що люди в Інтернеті можуть бути не тими, за кого себе видають`,
-          Markup.removeKeyboard()
+          Markup.keyboard([['❤️', '👎', 'Скарга']]).resize()
         );
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         await this.client.connect();
@@ -1156,29 +1167,48 @@ export class SceneGenerator {
             username || `[${ctx.from?.first_name}](${userLink})`;
           const userForm = await this.getUserFormDataFromDatabase(userId);
           if (userForm) {
-            let message = `👀Один краш поставив вподобайку твоєму профілю 
-🧘🏼*Краш:* ${this.userForm.username}, ${this.userForm.age}, ${this.userForm.location}`;
-            if (userForm.about) {
-              message = message + `, ${userForm.about}`;
-            }
-            await ctx.telegram.sendPhoto(previousUserId, userForm.photoId, {
-              caption: message,
-              parse_mode: 'Markdown',
-              reply_markup: {
-                inline_keyboard: [
-                  [
-                    {
-                      text: '❤️',
-                      callback_data: `like:${userId}:${mentionMessage}`,
-                    },
-                    {
-                      text: '👎',
-                      callback_data: `dislike`,
-                    },
-                  ],
-                ],
-              },
+            //             let message = `👀Один краш поставив вподобайку твоєму профілю
+            // 🧘🏼*Краш:* ${this.userForm.username}, ${this.userForm.age}, ${this.userForm.location}`;
+            //             if (userForm.about) {
+            //               message = message + `, ${userForm.about}`;
+            //             }
+            await ctx.telegram.sendMessage(
+              previousUserId,
+              `👀Один краш поставив вподобайку твоєму профілю, щоб переглянути хто це перейди у *архів лайків* 🗄`,
+              {
+                parse_mode: 'Markdown',
+                reply_markup: {
+                  keyboard: [['🗄 Перейти у архів']],
+                  resize_keyboard: true,
+                },
+              }
+            );
+            //await ctx.telegram.sendMediaGroup(previousUserId, mediaGroup);
+            await this.client.connect();
+            const db = this.client.db('cluster0');
+            await db.collection('matches').insertOne({
+              senderId: userId,
+              receiverId: previousUserId,
+              senderMentionMessage: mentionMessage,
             });
+            // await ctx.telegram.sendPhoto(previousUserId, userForm.photoId, {
+            //   caption: message,
+            //   parse_mode: 'Markdown',
+            //   reply_markup: {
+            //     inline_keyboard: [
+            //       [
+            //         {
+            //           text: '❤️',
+            //           callback_data: `like:${userId}:${mentionMessage}`,
+            //         },
+            //         {
+            //           text: '👎',
+            //           callback_data: `dislike`,
+            //         },
+            //       ],
+            //     ],
+            //   },
+            // });
             // await ctx.reply(
             //   `Супер! Очікуй на повідомлення від ініціатора події 🥳 Бажаю приємно провести час 👋`
             // , Markup.removeKeyboard());
@@ -1258,37 +1288,14 @@ export class SceneGenerator {
       }
     });
     lookForMatch.hears('Скарга', async (ctx) => {
-      const reportedUserId = userMatchForms[currentUserIndex]?.userId;
-      if (reportedUserId) {
-        await this.client.connect();
-        const db = this.client.db('cluster0');
-        const existingComplaint = await db
-          .collection('complaints')
-          .findOne({ userId: reportedUserId });
-
-        if (!existingComplaint) {
-          await db
-            .collection('complaints')
-            .insertOne({ userId: reportedUserId, complaintsNum: 1 });
-        } else {
-          await db
-            .collection('complaints')
-            .updateOne(
-              { userId: reportedUserId },
-              { $inc: { complaintsNum: 1 } }
-            );
-        }
-        await ctx.reply(
-          'Ви відправили скаргу на профіль. Дякуємо за Ваше повідомлення, ми розберемось з порушником 👮‍♂️',
-          Markup.removeKeyboard()
-        );
-        currentUserIndex++;
-        await this.sendUserDetails(
-          userMatchForms as unknown as UserForm[],
-          currentUserIndex,
-          ctx
-        );
-      }
+      this.reportedUserId = userMatchForms[currentUserIndex]?.userId;
+      ctx.scene.enter('complaint');
+      currentUserIndex++;
+      // await this.sendUserDetails(
+      //   userMatchForms as unknown as UserForm[],
+      //   currentUserIndex,
+      //   ctx
+      // );
     });
     this.addCommands(lookForMatch);
     lookForMatch.on('message', async (ctx) => {
@@ -1298,6 +1305,266 @@ export class SceneGenerator {
     });
     return lookForMatch;
   }
+
+  complaintScene(): Scenes.BaseScene<MySceneContext> {
+    const complaint = new Scenes.BaseScene<MySceneContext>('complaint');
+    complaint.enter(async (ctx) => {
+  
+      if (!this.reportedUserId) {
+        await ctx.reply('Такого користувача не знайдено, зверніться у підтримку');
+        await this.client.connect();
+        const db = this.client.db('cluster0');
+        await db.collection('viewed_profiles').insertOne({
+          viewerUserId: ctx.from!.id,
+          viewedUserId: this.reportedUserId,
+          expiryTimestamp: new Date(Date.now() + 10 * 1000),
+        });
+        this.reportedUserId = undefined;
+        await ctx.scene.leave();
+        return;
+      }
+      await ctx.reply(
+        `За бажанням, вкажіть причину скарги`,
+        Markup.keyboard([['Пропустити']])
+          .oneTime()
+          .resize()
+      );
+    });
+     const handleComplaint = async (ctx: MySceneContext, complaintDescription: string) => {
+      await this.client.connect();
+      const db = this.client.db('cluster0');
+      const existingComplaint = await db
+        .collection('complaints')
+        .findOne({ userId: this.reportedUserId });
+  
+      const updateData = {
+        $inc: { complaintsNum: 1 },
+        $push: { descriptions: complaintDescription },
+      };
+  
+      if (!existingComplaint) {
+        await db.collection('complaints').insertOne({
+          userId: this.reportedUserId,
+          complaintsNum: 1,
+          descriptions: [complaintDescription],
+        });
+      } else {
+        await db.collection('complaints').updateOne({ userId: this.reportedUserId }, updateData);
+      }
+  
+      await ctx.reply(
+        'Ви відправили скаргу на профіль. Дякуємо за Ваше повідомлення, ми розберемось з порушником 👮‍♂️',
+        Markup.removeKeyboard()
+      );
+      await db.collection('viewed_profiles').insertOne({
+        viewerUserId: ctx.from!.id,
+        viewedUserId: this.reportedUserId,
+        expiryTimestamp: new Date(Date.now() + 10 * 1000),
+      });
+      this.reportedUserId = undefined;
+      await ctx.scene.enter('lookForMatch')
+    }
+  
+    complaint.hears('Пропустити', async (ctx) => {
+      await handleComplaint(ctx, '');
+    });
+    this.addCommands(complaint)
+  
+    complaint.on('text', async (ctx) => {
+      const complaintDescription = ctx.message.text;
+      await handleComplaint(ctx, complaintDescription);
+    });
+  
+    return complaint;
+  }
+
+  likeArchiveScene(): Scenes.BaseScene<MySceneContext> {
+    const likeArchive = new Scenes.BaseScene<MySceneContext>('likeArchive');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let matches: any[];
+    let currentIndex = 0;
+    likeArchive.enter(async (ctx) => {
+      currentIndex = 0;
+      await this.client.connect();
+      const db = this.client.db('cluster0');
+      const userForm = (await db
+        .collection('users')
+        .findOne({ userId: ctx.from!.id })) as unknown as UserForm;
+      Object.assign(this.userForm, userForm);
+      matches = await db
+        .collection('matches')
+        .find({ receiverId: ctx.from!.id })
+        .toArray();
+      if (matches.length > 0) {
+        await ctx.reply(`Кількіть твоїх вподобань — *${matches.length}*`, {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            keyboard: [['❤️', '👎']],
+            resize_keyboard: true,
+          },
+        });
+        const user = await db
+          .collection('users')
+          .findOne({ userId: matches[currentIndex].senderId });
+        if (user) {
+          const caption =
+            `*Ім'я:* ${user.username}
+*Вік:* ${user.age}
+*Місто:* ${user.location}` +
+            (user.about ? `\n\n*Про себе:* ${user.about}` : '');
+          const mediaGroup: InputMediaPhoto[] = user.photoIds.map(
+            (photoId: string, index: number) => ({
+              type: 'photo',
+              media: photoId,
+              caption: index === 0 ? caption : undefined,
+              parse_mode: index === 0 ? 'Markdown' : undefined,
+            })
+          );
+          await ctx.replyWithMediaGroup(mediaGroup);
+          currentIndex++;
+        } else {
+          await ctx.reply(
+            `Схоже це все\n\n Можеш розпочати пошук або переглянути свій профіль\n👫 — Розпочати звичайний пошук\n👤 — Переглянути свій профіль`,
+            Markup.keyboard([['👫', '👤']])
+              .oneTime()
+              .resize()
+          );
+        }
+      } else {
+        await ctx.reply(
+          `Схоже тебе ще ніхто не вподобав\n\n Можеш розпочати пошук або переглянути свій профіль\n👫 — Розпочати звичайний пошук\n👤 — Переглянути свій профіль`,
+          Markup.keyboard([['👫', '👤']])
+            .oneTime()
+            .resize()
+        );
+      }
+    });
+    likeArchive.hears('❤️', async (ctx) => {
+      const caption =
+        `*Ім'я:* ${this.userForm.username}
+*Вік:* ${this.userForm.age}
+*Місто:* ${this.userForm.location}` +
+        (this.userForm.about ? `\n\n*Про себе:* ${this.userForm.about}` : '');
+      const mediaGroup: InputMediaPhoto[] = this.userForm.photoIds.map(
+        (photoId: string, index: number) => ({
+          type: 'photo',
+          media: photoId,
+          caption: index === 0 ? caption : undefined,
+          parse_mode: index === 0 ? 'Markdown' : undefined,
+        })
+      );
+      let username = ctx.from?.username;
+      if (username) {
+        username = '@' + username;
+      }
+      const userId = ctx.from!.id;
+      const userLink = `tg://user?id=${userId}`;
+      const mentionMessage =
+        username || `[${ctx.from?.first_name}](${userLink})`;
+      await ctx.reply(
+        `Бажаємо весело провести час\nПосилання на користувача: ${
+          matches[currentIndex - 1].senderMentionMessage
+        }`,
+        {
+          parse_mode: 'Markdown',
+        }
+      );
+      await ctx.telegram.sendMediaGroup(
+        matches[currentIndex - 1].senderId,
+        mediaGroup
+      );
+      await ctx.telegram.sendMessage(
+        matches[currentIndex - 1].senderId,
+        `Ви отримали взаємний лайк. Бажаємо весело провести час\nПосилання на користувача: ${mentionMessage}`,
+        {
+          parse_mode: 'Markdown',
+        }
+      );
+      await this.client.connect();
+      const db = this.client.db('cluster0');
+      await db.collection('matches').deleteMany({
+        $or: [
+          {
+            senderId: this.userForm.userId,
+            receiverId: matches[currentIndex - 1].senderId,
+          },
+          {
+            senderId: matches[currentIndex - 1].senderId,
+            receiverId: this.userForm.userId,
+          },
+        ],
+      });
+      if (matches.length > currentIndex) {
+        const user = await db
+          .collection('users')
+          .findOne({ userId: matches[currentIndex].senderId });
+        if (user) {
+          const caption =
+            `*Ім'я:* ${user.username}
+  *Вік:* ${user.age}
+  *Місто:* ${user.location}` +
+            (user.about ? `\n\n*Про себе:* ${user.about}` : '');
+          const mediaGroup: InputMediaPhoto[] = user.photoIds.map(
+            (photoId: string, index: number) => ({
+              type: 'photo',
+              media: photoId,
+              caption: index === 0 ? caption : undefined,
+              parse_mode: index === 0 ? 'Markdown' : undefined,
+            })
+          );
+          await ctx.replyWithMediaGroup(mediaGroup);
+          currentIndex++;
+        }
+      } else {
+        await ctx.reply(
+          `Схоже це все\n\n Можеш розпочати пошук або переглянути свій профіль\n👫 — Розпочати звичайний пошук\n👤 — Переглянути свій профіль`,
+          Markup.keyboard([['👫', '👤']])
+            .oneTime()
+            .resize()
+        );
+      }
+    });
+    likeArchive.hears('👎', async (ctx) => {
+      await this.client.connect();
+      const db = this.client.db('cluster0');
+      const user = await db
+        .collection('users')
+        .findOne({ userId: matches[currentIndex].senderId });
+      if (user) {
+        const caption =
+          `*Ім'я:* ${user.username}
+*Вік:* ${user.age}
+*Місто:* ${user.location}` +
+          (user.about ? `\n\n*Про себе:* ${user.about}` : '');
+        const mediaGroup: InputMediaPhoto[] = user.photoIds.map(
+          (photoId: string, index: number) => ({
+            type: 'photo',
+            media: photoId,
+            caption: index === 0 ? caption : undefined,
+            parse_mode: index === 0 ? 'Markdown' : undefined,
+          })
+        );
+        await ctx.replyWithMediaGroup(mediaGroup);
+        currentIndex++;
+      } else {
+        await ctx.reply(
+          `Схоже це все\n\n Можеш розпочати пошук або переглянути свій профіль\n👫 — Розпочати звичайний пошук\n👤 — Переглянути свій профіль`,
+          Markup.keyboard([['👫', '👤']])
+            .oneTime()
+            .resize()
+        );
+      }
+    });
+    likeArchive.hears('👫', async (ctx) => {
+      await ctx.scene.enter('lookForMatch');
+    });
+    likeArchive.hears('👤', async (ctx) => {
+      await ctx.scene.enter('userform');
+    });
+    this.addCommands(likeArchive);
+    return likeArchive;
+  }
+
   moderateScene(): Scenes.BaseScene<MySceneContext> {
     const moderate = new Scenes.BaseScene<MySceneContext>('moderate');
     let currentIndex = 0;
@@ -1318,6 +1585,13 @@ export class SceneGenerator {
         .toArray()) as unknown as UserForm[];
 
       if (reportedUsers.length > 0) {
+        await ctx.reply(`Кількість порушників — *${reportedUsers.length}*`, {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            keyboard: [['Забанити', 'Не винний']],
+            resize_keyboard: true,
+          },
+        });
         const reportedUser = reportedUsers[currentIndex];
         const matchingComplaint = complaints.find(
           (complaint) => complaint.userId === reportedUser.userId
@@ -1325,9 +1599,9 @@ export class SceneGenerator {
         const complaintsNum = matchingComplaint
           ? matchingComplaint.complaintsNum
           : 0;
-        await this.sendReportedProfile(ctx, reportedUser, complaintsNum);
+        await this.sendReportedProfile(ctx, reportedUser, complaintsNum, matchingComplaint.descriptions);
       } else {
-        await ctx.reply('Нових скарг немає');
+        await ctx.reply('Нових скарг немає', Markup.removeKeyboard());
       }
     });
     moderate.hears(['Забанити', 'Не винний'], async (ctx) => {
@@ -1337,12 +1611,6 @@ export class SceneGenerator {
       }
 
       const reportedUser = reportedUsers[currentIndex];
-      const matchingComplaint = complaints.find(
-        (complaint) => complaint.userId === reportedUser.userId
-      );
-      const complaintsNum = matchingComplaint
-        ? matchingComplaint.complaintsNum
-        : 0;
       const action = ctx.match?.[0] || '';
 
       if (action === 'Забанити') {
@@ -1378,10 +1646,18 @@ export class SceneGenerator {
         .collection('complaints')
         .deleteOne({ userId: reportedUser.userId });
       if (reportedUsers[currentIndex]) {
+        const reportedUser = reportedUsers[currentIndex];
+        const matchingComplaint = complaints.find(
+          (complaint) => complaint.userId === reportedUser.userId
+        );
+        const complaintsNum = matchingComplaint
+          ? matchingComplaint.complaintsNum
+          : 0;
         await this.sendReportedProfile(
           ctx,
           reportedUsers[currentIndex],
-          complaintsNum
+          complaintsNum,
+          matchingComplaint.descriptions
         );
       } else {
         await ctx.reply('Порушники закінчились', Markup.removeKeyboard());
@@ -1503,13 +1779,15 @@ export class SceneGenerator {
   async sendReportedProfile(
     ctx: MySceneContext,
     reportedUser: UserForm,
-    complaintsNum: number
+    complaintsNum: number,
+    descriptions: string[]
   ) {
     await this.client.connect();
     const db = this.client.db('cluster0');
     const banData = await db
       .collection('bans')
       .findOne({ userId: reportedUser.userId });
+      const complaintsList = descriptions.map((complaint, index) => `*${index + 1})* ${complaint}`).join('\n');
     const message = `На цього користувача надійшла скарга:
 *Кількість скарг:* ${complaintsNum}
 *Кількість банів:* ${banData ? banData.banCount : 0}
@@ -1517,16 +1795,18 @@ export class SceneGenerator {
 *Вік:* ${reportedUser.age}
 *Місто:* ${reportedUser.location}
 *Про себе:* ${reportedUser.about}
-  `;
-
-    await ctx.replyWithPhoto(reportedUser.photoId, {
-      caption: message,
-      parse_mode: 'Markdown',
-      reply_markup: {
-        keyboard: [['Забанити', 'Не винний']],
-        resize_keyboard: true,
-      },
-    });
+ 
+*Причини скарг:*
+${complaintsList}`;
+    const mediaGroup: InputMediaPhoto[] = reportedUser.photoIds.map(
+      (photoId: string, index: number) => ({
+        type: 'photo',
+        media: photoId,
+        caption: index === 0 ? message : undefined,
+        parse_mode: index === 0 ? 'Markdown' : undefined,
+      })
+    );
+    await ctx.replyWithMediaGroup(mediaGroup);
   }
   addCommands(scene: Scenes.BaseScene<MySceneContext>) {
     scene.command('start', async (ctx) => {
@@ -1561,6 +1841,9 @@ export class SceneGenerator {
     scene.hears('🍾 Події', async (ctx) => {
       await ctx.scene.enter('eventList');
     });
+    scene.hears('🗄 Перейти у архів', async (ctx) => {
+      await ctx.scene.enter('likeArchive');
+    });
     scene.command('premiumTest', async (ctx) => {
       // TEST FUNC DELETE IN PROD!!!!!
       const subscriptionDurationMs = 10 * 60 * 1000; // 10 min
@@ -1568,7 +1851,7 @@ export class SceneGenerator {
       premiumEndTime.setTime(premiumEndTime.getTime() + subscriptionDurationMs);
       await this.client.connect();
       const db = this.client.db('cluster0');
-      const user = await db.collection('users').findOneAndUpdate(
+       await db.collection('users').updateOne(
         { userId: +this.configService.get('TG_MODERATOR_ID') },
         {
           $set: {
@@ -1578,7 +1861,6 @@ export class SceneGenerator {
           },
         }
       );
-      console.log(user);
       ctx.telegram.sendMessage(
         this.configService.get('TG_MODERATOR_ID'),
         'В тебе тепер є преміум'
@@ -1609,7 +1891,6 @@ export class SceneGenerator {
               actualLocation: userForm.actualLocation,
               location: userForm.location,
               photoIds: userForm.photoIds,
-              photoId: userForm.photoId,
               likesSentCount: userForm.likesSentCount,
               isActive: userForm.isActive,
               isPremium: userForm.isPremium,
@@ -1741,25 +2022,15 @@ export class SceneGenerator {
 *Вік:* ${user.age}
 *Місто:* ${user.location}` +
         (user.about ? `\n\n*Про себе:* ${user.about}` : '');
-      // await ctx.replyWithPhoto(user.photoId, {
-      //   caption,
-      //   parse_mode: 'Markdown',
-      //   reply_markup: {
-      //     keyboard: [['❤️', '👎', 'Скарга']],
-      //     resize_keyboard: true,
-      //   },
-      // });
-      this.mediaGroup = user.photoIds.map((photoId, index) => ({
-        type: 'photo',
-        media: photoId,
-        caption: index === 0 ? caption : undefined,
-        parse_mode: index === 0 ? 'Markdown' : undefined,
-        // reply_markup: {
-        //   keyboard: [['❤️', '👎', 'Скарга']], 
-        //   resize_keyboard: true,
-        // },
-      }));
-      await ctx.telegram.sendMediaGroup(ctx.from!.id, this.mediaGroup);
+      const mediaGroup: InputMediaPhoto[] = user.photoIds.map(
+        (photoId, index) => ({
+          type: 'photo',
+          media: photoId,
+          caption: index === 0 ? caption : undefined,
+          parse_mode: index === 0 ? 'Markdown' : undefined,
+        })
+      );
+      await ctx.telegram.sendMediaGroup(ctx.from!.id, mediaGroup);
       return user;
     } else {
       await ctx.reply(

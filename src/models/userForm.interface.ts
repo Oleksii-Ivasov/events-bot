@@ -12,7 +12,6 @@ export interface UserForm {
         latitude: number;
       }
     | string;
-    photoId: string,
   photoIds: string[];
   likesSentCount: number,
   isActive: boolean;
