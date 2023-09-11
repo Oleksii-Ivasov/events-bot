@@ -258,7 +258,7 @@ class Bot {
       await ctx.scene.enter('payment');
     });
     this.bot.command('premiumTest', async () => { // TEST FUNC DELETE IN PROD!!!!!
-      const subscriptionDurationMs = 10 * 60 * 1000; // 10 min
+      const subscriptionDurationMs = 60 * 60 * 1000;  //60 min
       const premiumEndTime = new Date();
       premiumEndTime.setTime(
         premiumEndTime.getTime() + subscriptionDurationMs

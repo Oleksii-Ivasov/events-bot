@@ -1033,7 +1033,7 @@ export class SceneGenerator {
     });
     return eventList;
   }
-private reportedUserId: number | undefined = undefined;
+  private reportedUserId: number | undefined = undefined;
   lookForMatchScene(): Scenes.BaseScene<MySceneContext> {
     const lookForMatch = new Scenes.BaseScene<MySceneContext>('lookForMatch');
     let currentUserIndex = 0;
@@ -1309,9 +1309,10 @@ private reportedUserId: number | undefined = undefined;
   complaintScene(): Scenes.BaseScene<MySceneContext> {
     const complaint = new Scenes.BaseScene<MySceneContext>('complaint');
     complaint.enter(async (ctx) => {
-  
       if (!this.reportedUserId) {
-        await ctx.reply('Такого користувача не знайдено, зверніться у підтримку');
+        await ctx.reply(
+          'Такого користувача не знайдено, зверніться у підтримку'
+        );
         await this.client.connect();
         const db = this.client.db('cluster0');
         await db.collection('viewed_profiles').insertOne({
@@ -1330,18 +1331,21 @@ private reportedUserId: number | undefined = undefined;
           .resize()
       );
     });
-     const handleComplaint = async (ctx: MySceneContext, complaintDescription: string) => {
+    const handleComplaint = async (
+      ctx: MySceneContext,
+      complaintDescription: string
+    ) => {
       await this.client.connect();
       const db = this.client.db('cluster0');
       const existingComplaint = await db
         .collection('complaints')
         .findOne({ userId: this.reportedUserId });
-  
+
       const updateData = {
         $inc: { complaintsNum: 1 },
         $push: { descriptions: complaintDescription },
       };
-  
+
       if (!existingComplaint) {
         await db.collection('complaints').insertOne({
           userId: this.reportedUserId,
@@ -1349,9 +1353,11 @@ private reportedUserId: number | undefined = undefined;
           descriptions: [complaintDescription],
         });
       } else {
-        await db.collection('complaints').updateOne({ userId: this.reportedUserId }, updateData);
+        await db
+          .collection('complaints')
+          .updateOne({ userId: this.reportedUserId }, updateData);
       }
-  
+
       await ctx.reply(
         'Ви відправили скаргу на профіль. Дякуємо за Ваше повідомлення, ми розберемось з порушником 👮‍♂️',
         Markup.removeKeyboard()
@@ -1362,19 +1368,19 @@ private reportedUserId: number | undefined = undefined;
         expiryTimestamp: new Date(Date.now() + 10 * 1000),
       });
       this.reportedUserId = undefined;
-      await ctx.scene.enter('lookForMatch')
-    }
-  
+      await ctx.scene.enter('lookForMatch');
+    };
+
     complaint.hears('Пропустити', async (ctx) => {
       await handleComplaint(ctx, '');
     });
-    this.addCommands(complaint)
-  
+    this.addCommands(complaint);
+
     complaint.on('text', async (ctx) => {
       const complaintDescription = ctx.message.text;
       await handleComplaint(ctx, complaintDescription);
     });
-  
+
     return complaint;
   }
 
@@ -1599,7 +1605,12 @@ private reportedUserId: number | undefined = undefined;
         const complaintsNum = matchingComplaint
           ? matchingComplaint.complaintsNum
           : 0;
-        await this.sendReportedProfile(ctx, reportedUser, complaintsNum, matchingComplaint.descriptions);
+        await this.sendReportedProfile(
+          ctx,
+          reportedUser,
+          complaintsNum,
+          matchingComplaint.descriptions
+        );
       } else {
         await ctx.reply('Нових скарг немає', Markup.removeKeyboard());
       }
@@ -1667,13 +1678,67 @@ private reportedUserId: number | undefined = undefined;
 
     return moderate;
   }
+
+  showPremiumBenefitsScene(): Scenes.BaseScene<MySceneContext> {
+    const premiumBenefits = new Scenes.BaseScene<MySceneContext>(
+      'premiumBenefits'
+    );
+    premiumBenefits.enter(async (ctx) => {
+      await ctx.reply(
+        `Тут мають бути список переваг преміум підписки`,
+        Markup.keyboard([['Купити преміум'], ['🔙 Назад']])
+          .oneTime()
+          .resize()
+      );
+    });
+    premiumBenefits.hears('Купити преміум', async (ctx) => {
+      await ctx.scene.enter('premiumPeriod');
+    });
+    premiumBenefits.hears('🔙 Назад', async (ctx) => {
+      await ctx.scene.leave();
+    });
+    this.addCommands(premiumBenefits);
+    premiumBenefits.on('message', async (ctx) => {
+      await ctx.reply(
+        `Ти можеш або купити преміум або повернутись назад 👇🏻`,
+        Markup.keyboard([['Купити преміум'], ['🔙 Назад']])
+          .oneTime()
+          .resize()
+      );
+    });
+    return premiumBenefits;
+  }
+
+  choosePremiumPeriodScene(): Scenes.BaseScene<MySceneContext> {
+    const premiumPeriod = new Scenes.BaseScene<MySceneContext>('premiumPeriod');
+    premiumPeriod.enter(async (ctx) => {
+      await ctx.reply(`ЗМІНИТИ ЦЕЙ ТЕКСТ\n📅 Який період вас цікавить? Доступні такі пропозиції:\n✦ 1 місяць - 100 гривень\n✦ 6 місяців - 450 гривень (75грн/місяць) замість 600\n✦ 1 рік - 600 гривень (50грн/місяць) замість 1200\n💶 Оплата відбувається разово, після чого преміум автоматично активується.`, Markup.keyboard([['1 місяць', '6 місяців', '1 рік'], ['🔙 Назад']]).oneTime().resize());
+    });
+    premiumPeriod.hears('1 місяць', async (ctx) => {
+      await ctx.reply(`📝 Інформація про підписку:\n• Термін: 1 місяць\n• Вартість: 100 гривень\n💶 Після успішної оплати, ви отримаєте сповіщення про активацію преміуму. У разі виникнення проблем, звертайтесь у підтримку.`);
+    });
+    premiumPeriod.hears('6 місяців', async (ctx) => {
+      await ctx.reply(`📝 Інформація про підписку:\n• Термін: 6 місяців\n• Вартість: 450 гривень\n💶 Після успішної оплати, ви отримаєте сповіщення про активацію преміуму. У разі виникнення проблем, звертайтесь у підтримку.`);
+    });
+    premiumPeriod.hears('1 рік', async (ctx) => {
+      await ctx.reply(`📝 Інформація про підписку:\n• Термін: 1 рік\n• Вартість: 600 гривень\n💶 Після успішної оплати, ви отримаєте сповіщення про активацію преміуму. У разі виникнення проблем, звертайтесь у підтримку.`);
+    });
+    premiumPeriod.hears('🔙 Назад', async (ctx) => {
+      await ctx.scene.leave();
+    });
+    this.addCommands(premiumPeriod);
+  
+    return premiumPeriod;
+  }
+  
+
   paymentScene(): Scenes.BaseScene<MySceneContext> {
     const payment = new Scenes.BaseScene<MySceneContext>('payment');
     payment.enter(async (ctx) => {
       const userId = ctx.from!.id;
       const user = await this.getUserFormDataFromDatabase(userId);
       if (user && user.isPremium) {
-        await ctx.reply('You are already subscribed to premium.');
+        await ctx.reply('Ти вже маєш преміум підписку');
         return;
       } else {
         const merchantAccount = 't_me_bbcec';
@@ -1787,7 +1852,9 @@ private reportedUserId: number | undefined = undefined;
     const banData = await db
       .collection('bans')
       .findOne({ userId: reportedUser.userId });
-      const complaintsList = descriptions.map((complaint, index) => `*${index + 1})* ${complaint}`).join('\n');
+    const complaintsList = descriptions
+      .map((complaint, index) => `*${index + 1})* ${complaint}`)
+      .join('\n');
     const message = `На цього користувача надійшла скарга:
 *Кількість скарг:* ${complaintsNum}
 *Кількість банів:* ${banData ? banData.banCount : 0}
@@ -1851,7 +1918,7 @@ ${complaintsList}`;
       premiumEndTime.setTime(premiumEndTime.getTime() + subscriptionDurationMs);
       await this.client.connect();
       const db = this.client.db('cluster0');
-       await db.collection('users').updateOne(
+      await db.collection('users').updateOne(
         { userId: +this.configService.get('TG_MODERATOR_ID') },
         {
           $set: {
