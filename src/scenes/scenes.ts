@@ -11,7 +11,7 @@ import Fuse from 'fuse.js';
 import fs from 'fs';
 import crypto from 'crypto';
 import cron from 'node-cron';
-import { InputMediaPhoto } from 'telegraf/typings/core/types/typegram';
+import { MediaGroup } from 'telegraf/typings/telegram-types';
 
 const MAX_LIKES_LIMIT = 2;
 
@@ -21,7 +21,7 @@ export class SceneGenerator {
     private configService: IConfigService
   ) {
     cron.schedule('*/59 * * * *', async () => {
-      // every minute check
+      // every 59 minutes check
       const currentDate = new Date();
       const inactiveThreshold = 5 * 60 * 1000; // 5 minutes
       await client.connect();
@@ -101,7 +101,7 @@ export class SceneGenerator {
       latitude: NaN,
     },
     location: '',
-    photoIds: [],
+    mediaIds: [],
     likesSentCount: 0,
     isActive: true,
     isPremium: false,
@@ -404,20 +404,48 @@ export class SceneGenerator {
     //   return latinToCyrillicMap[lowercaseCharacter] || character;
     // }
   }
+
   private maxPhotoCount: number = 1;
   private isUploaded = false;
   photoScene(): Scenes.BaseScene<MySceneContext> {
     const photo = new Scenes.BaseScene<MySceneContext>('photo');
+
+    const isMediaLimitReached = () =>
+      this.userForm.mediaIds.length >= this.maxPhotoCount;
+      
+    const handleMediaUpload = async (
+      ctx: MySceneContext,
+      mediaType: string,
+      mediaId: string
+    ) => {
+      if (!isMediaLimitReached()) {
+        this.userForm.mediaIds.push({ type: mediaType, id: mediaId });
+      }
+      if (!isMediaLimitReached()) {
+        await ctx.reply(
+          `Ти завантажив ${this.userForm.mediaIds.length} з ${this.maxPhotoCount} доступних медіа. Можеш зберегти медіа або додати ще`,
+          Markup.keyboard([['Це все, зберегти медіа']])
+            .oneTime()
+            .resize()
+        );
+      } else if (!this.isUploaded) {
+        this.isUploaded = true;
+        await this.saveUserFormToDatabase(this.userForm);
+        await ctx.scene.enter('userform');
+      }
+    };
     photo.enter(async (ctx) => {
       this.maxPhotoCount = this.userForm.isPremium ? 3 : 1;
-      this.userForm.photoIds = [];
+      this.userForm.mediaIds = [];
       this.isUploaded = false;
       const photoPrompt = this.userForm.isPremium
-        ? 'Обери свої найкращі фото (максимум 3), які будуть бачити інші'
-        : 'Обери своє найкраще фото, яке будуть бачити інші';
+        ? 'Обери свої найкращі фото або відео (тривалістю до 15 секунд) (максимум 3), які будуть бачити інші'
+        : 'Обери своє найкраще фото або відео (тривалістю до 15 секунд), яке будуть бачити інші';
       await ctx.reply(photoPrompt, Markup.removeKeyboard());
     });
+
     this.addCommands(photo);
+
     photo.on('photo', async (ctx) => {
       const photos = ctx.message.photo;
       photos.sort((a, b) => {
@@ -425,26 +453,20 @@ export class SceneGenerator {
         const resolutionB = b.width * b.height;
         return resolutionB - resolutionA;
       });
-      if (this.userForm.photoIds.length < this.maxPhotoCount) {
-        this.userForm.photoIds.push(photos[0].file_id);
-      }
-      if (this.userForm.photoIds.length < this.maxPhotoCount) {
+      handleMediaUpload(ctx, 'photo', photos[0].file_id);
+    });
+
+    photo.on('video', async (ctx) => {
+      const video = ctx.message.video;
+      if (video.duration <= 15) {
+        handleMediaUpload(ctx, 'video', video.file_id);
+      } else {
         await ctx.reply(
-          `Ти завантажив ${this.userForm.photoIds.length} з ${this.maxPhotoCount} доступних фото. Можеш зберегти фото або додати ще`,
-          Markup.keyboard([['Це все, зберегти фото']])
-            .oneTime()
-            .resize()
+          'Відео занадто довге. Будь-ласка, завантаж відео тривалістю до 15 секунд'
         );
-      } else if (
-        this.userForm.photoIds.length === this.maxPhotoCount &&
-        !this.isUploaded
-      ) {
-        this.isUploaded = true;
-        await this.saveUserFormToDatabase(this.userForm);
-        await ctx.scene.enter('userform');
       }
     });
-    photo.hears('Це все, зберегти фото', async (ctx) => {
+    photo.hears('Це все, зберегти медіа', async (ctx) => {
       this.isUploaded = true;
       await this.saveUserFormToDatabase(this.userForm);
       await ctx.scene.enter('userform');
@@ -457,18 +479,19 @@ export class SceneGenerator {
     });
     photo.on('text', async (ctx) => {
       await ctx.reply(
-        'Завантаж, будь-ласка, своє фото',
+        'Завантаж, будь-ласка, своє фото або відео',
         Markup.removeKeyboard()
       );
     });
     photo.on('message', async (ctx) => {
       await ctx.reply(
-        'Завантаж, будь-ласка, своє фото',
+        'Завантаж, будь-ласка, своє фото або відео',
         Markup.removeKeyboard()
       );
     });
     return photo;
   }
+
   userFormScene(): Scenes.BaseScene<MySceneContext> {
     const userFormScene = new Scenes.BaseScene<MySceneContext>('userform');
     userFormScene.enter(async (ctx) => {
@@ -486,10 +509,10 @@ export class SceneGenerator {
           if (userForm.about) {
             caption = caption + `\n\n*Про себе:* ${userForm.about}`;
           }
-          const mediaGroup: InputMediaPhoto[] = this.userForm.photoIds.map(
-            (photoId, index) => ({
-              type: 'photo',
-              media: photoId,
+          const mediaGroup: MediaGroup = this.userForm.mediaIds.map(
+            (mediaObj: { type: string; id: string }, index: number) => ({
+              type: mediaObj.type as 'document',
+              media: mediaObj.id,
               caption: index === 0 ? caption : undefined,
               parse_mode: index === 0 ? 'Markdown' : undefined,
             })
@@ -582,10 +605,10 @@ export class SceneGenerator {
           userFormScene.hears('❌ Ні, повернутись назад', async (ctx) => {
             await ctx.reply(
               `✍🏻 — Редагувати профіль
-  🆕 — Додати подію
-  🎟 — Мої події
-  🗄 — Архів лайків
-  ❌ — Приховати профіль`,
+🆕 — Додати подію
+🎟 — Мої події
+🗄 — Архів лайків
+❌ — Приховати профіль`,
               Markup.keyboard([['✍🏻', '🆕', '🎟', '🗄', '❌']])
                 .oneTime()
                 .resize()
@@ -594,10 +617,10 @@ export class SceneGenerator {
           userFormScene.on('message', async (ctx) => {
             await ctx.reply(
               `✍🏻 — Редагувати профіль
-  🆕 — Додати подію
-  🎟 — Мої події
-  🗄 — Архів лайків
-  ❌ — Приховати профіль`,
+🆕 — Додати подію
+🎟 — Мої події
+🗄 — Архів лайків
+❌ — Приховати профіль`,
               Markup.keyboard([['✍🏻', '🆕', '🎟', '🗄', '❌']])
                 .oneTime()
                 .resize()
@@ -619,7 +642,7 @@ export class SceneGenerator {
     userFormEditScene.enter(async (ctx) => {
       await ctx.reply(
         `1. Заповнити анкету заново
-2. Змінити фото`,
+2. Змінити фото або відео`,
         Markup.keyboard([['1', '2']])
           .resize()
           .oneTime()
@@ -1183,7 +1206,6 @@ export class SceneGenerator {
                 },
               }
             );
-            //await ctx.telegram.sendMediaGroup(previousUserId, mediaGroup);
             await this.client.connect();
             const db = this.client.db('cluster0');
             await db.collection('matches').insertOne({
@@ -1418,10 +1440,10 @@ export class SceneGenerator {
 *Вік:* ${user.age}
 *Місто:* ${user.location}` +
             (user.about ? `\n\n*Про себе:* ${user.about}` : '');
-          const mediaGroup: InputMediaPhoto[] = user.photoIds.map(
-            (photoId: string, index: number) => ({
-              type: 'photo',
-              media: photoId,
+          const mediaGroup: MediaGroup = this.userForm.mediaIds.map(
+            (mediaObj: { type: string; id: string }, index: number) => ({
+              type: mediaObj.type as 'document',
+              media: mediaObj.id,
               caption: index === 0 ? caption : undefined,
               parse_mode: index === 0 ? 'Markdown' : undefined,
             })
@@ -1451,10 +1473,10 @@ export class SceneGenerator {
 *Вік:* ${this.userForm.age}
 *Місто:* ${this.userForm.location}` +
         (this.userForm.about ? `\n\n*Про себе:* ${this.userForm.about}` : '');
-      const mediaGroup: InputMediaPhoto[] = this.userForm.photoIds.map(
-        (photoId: string, index: number) => ({
-          type: 'photo',
-          media: photoId,
+      const mediaGroup: MediaGroup = this.userForm.mediaIds.map(
+        (mediaObj: { type: string; id: string }, index: number) => ({
+          type: mediaObj.type as 'document',
+          media: mediaObj.id,
           caption: index === 0 ? caption : undefined,
           parse_mode: index === 0 ? 'Markdown' : undefined,
         })
@@ -1510,10 +1532,10 @@ export class SceneGenerator {
   *Вік:* ${user.age}
   *Місто:* ${user.location}` +
             (user.about ? `\n\n*Про себе:* ${user.about}` : '');
-          const mediaGroup: InputMediaPhoto[] = user.photoIds.map(
-            (photoId: string, index: number) => ({
-              type: 'photo',
-              media: photoId,
+          const mediaGroup: MediaGroup = this.userForm.mediaIds.map(
+            (mediaObj: { type: string; id: string }, index: number) => ({
+              type: mediaObj.type as 'document',
+              media: mediaObj.id,
               caption: index === 0 ? caption : undefined,
               parse_mode: index === 0 ? 'Markdown' : undefined,
             })
@@ -1542,10 +1564,10 @@ export class SceneGenerator {
 *Вік:* ${user.age}
 *Місто:* ${user.location}` +
           (user.about ? `\n\n*Про себе:* ${user.about}` : '');
-        const mediaGroup: InputMediaPhoto[] = user.photoIds.map(
-          (photoId: string, index: number) => ({
-            type: 'photo',
-            media: photoId,
+        const mediaGroup: MediaGroup = this.userForm.mediaIds.map(
+          (mediaObj: { type: string; id: string }, index: number) => ({
+            type: mediaObj.type as 'document',
+            media: mediaObj.id,
             caption: index === 0 ? caption : undefined,
             parse_mode: index === 0 ? 'Markdown' : undefined,
           })
@@ -1712,25 +1734,104 @@ export class SceneGenerator {
   choosePremiumPeriodScene(): Scenes.BaseScene<MySceneContext> {
     const premiumPeriod = new Scenes.BaseScene<MySceneContext>('premiumPeriod');
     premiumPeriod.enter(async (ctx) => {
-      await ctx.reply(`ЗМІНИТИ ЦЕЙ ТЕКСТ\n📅 Який період вас цікавить? Доступні такі пропозиції:\n✦ 1 місяць - 100 гривень\n✦ 6 місяців - 450 гривень (75грн/місяць) замість 600\n✦ 1 рік - 600 гривень (50грн/місяць) замість 1200\n💶 Оплата відбувається разово, після чого преміум автоматично активується.`, Markup.keyboard([['1 місяць', '6 місяців', '1 рік'], ['🔙 Назад']]).oneTime().resize());
+      await ctx.reply(
+        `ЗМІНИТИ ЦЕЙ ТЕКСТ\n📅 Який період вас цікавить? Доступні такі пропозиції:\n✦ 1 місяць - 100 гривень\n✦ 6 місяців - 450 гривень (75грн/місяць) замість 600\n✦ 1 рік - 600 гривень (50грн/місяць) замість 1200\n💶 Оплата відбувається разово, після чого преміум автоматично активується.`,
+        Markup.keyboard([['1 місяць', '6 місяців', '1 рік'], ['🔙 Назад']])
+          .oneTime()
+          .resize()
+      );
     });
     premiumPeriod.hears('1 місяць', async (ctx) => {
-      await ctx.reply(`📝 Інформація про підписку:\n• Термін: 1 місяць\n• Вартість: 100 гривень\n💶 Після успішної оплати, ви отримаєте сповіщення про активацію преміуму. У разі виникнення проблем, звертайтесь у підтримку.`);
+      await ctx.reply(
+        `📝 Інформація про підписку:\n• Термін: 1 місяць\n• Вартість: 100 гривень\n💶 Після успішної оплати, ви отримаєте сповіщення про активацію преміуму. У разі виникнення проблем, звертайтесь у підтримку.`
+      );
+      const userId = ctx.from!.id;
+      const user = await this.getUserFormDataFromDatabase(userId);
+      if (user && user.isPremium) {
+        await ctx.reply('Ти вже маєш преміум підписку');
+        return;
+      } else {
+        const merchantAccount = 't_me_bbcec';
+        const subscrptionPeriod = '1 month'
+        const orderReference = `ORDER_${Date.now()}_${userId}_${subscrptionPeriod}`;
+        const orderDate = Math.floor(new Date().getTime() / 1000);
+        const currency = 'UAH';
+        const serviceUrl = this.configService.get('SERVICE_URL');
+        const merchantDomainName = this.configService.get(
+          'MERCHANT_DOMAIN_NAME'
+        );
+        const merchantSecretKey = this.configService.get('MERCHANT_SECRET_KEY');
+        const productName = ['Преміум підписка на Crush\nТермін — 1 місяць'];
+        const productCount = [1];
+        const productPrice = [1];
+        const orderTimeout = 49000;
+        const amount = productPrice.reduce((total, price, index) => {
+          return total + price * productCount[index];
+        }, 0);
+        const merchantAuthType = 'SimpleSignature';
+
+        const stringToSign = `${merchantAccount};${merchantDomainName};${orderReference};${orderDate};${amount};${currency};${productName};${productCount};${productPrice}`;
+
+        const hmac = crypto.createHmac('md5', merchantSecretKey);
+        hmac.update(stringToSign, 'utf-8');
+        const merchantSignature = hmac.digest('hex');
+
+        const paymentRequest = {
+          transactionType: 'CREATE_INVOICE',
+          merchantAccount,
+          merchantAuthType,
+          merchantDomainName,
+          merchantSignature,
+          apiVersion: 2,
+          language: 'ua',
+          serviceUrl,
+          orderReference,
+          orderDate,
+          amount,
+          currency,
+          orderTimeout,
+          productName,
+          productPrice,
+          productCount,
+          paymentSystems:
+            'card;googlePay;applePay;privat24;visaCheckout;masterPass',
+        };
+        axios
+          .post('https://api.wayforpay.com/api', paymentRequest)
+          .then(async (response) => {
+            if (response.data.reason === 'Ok') {
+              const invoiceUrl = response.data.invoiceUrl;
+              await ctx.reply(
+                `Купити підписку на місяць за 100 гривень`,
+                Markup.inlineKeyboard([
+                  Markup.button.url('Купити підписку', invoiceUrl),
+                ])
+              );
+            }
+          })
+          .catch((error) => {
+            console.error('WayForPay Error:', error);
+          });
+      }
+    
     });
     premiumPeriod.hears('6 місяців', async (ctx) => {
-      await ctx.reply(`📝 Інформація про підписку:\n• Термін: 6 місяців\n• Вартість: 450 гривень\n💶 Після успішної оплати, ви отримаєте сповіщення про активацію преміуму. У разі виникнення проблем, звертайтесь у підтримку.`);
+      await ctx.reply(
+        `📝 Інформація про підписку:\n• Термін: 6 місяців\n• Вартість: 450 гривень\n💶 Після успішної оплати, ви отримаєте сповіщення про активацію преміуму. У разі виникнення проблем, звертайтесь у підтримку.`
+      );
     });
     premiumPeriod.hears('1 рік', async (ctx) => {
-      await ctx.reply(`📝 Інформація про підписку:\n• Термін: 1 рік\n• Вартість: 600 гривень\n💶 Після успішної оплати, ви отримаєте сповіщення про активацію преміуму. У разі виникнення проблем, звертайтесь у підтримку.`);
+      await ctx.reply(
+        `📝 Інформація про підписку:\n• Термін: 1 рік\n• Вартість: 600 гривень\n💶 Після успішної оплати, ви отримаєте сповіщення про активацію преміуму. У разі виникнення проблем, звертайтесь у підтримку.`
+      );
     });
     premiumPeriod.hears('🔙 Назад', async (ctx) => {
       await ctx.scene.leave();
     });
     this.addCommands(premiumPeriod);
-  
+
     return premiumPeriod;
   }
-  
 
   paymentScene(): Scenes.BaseScene<MySceneContext> {
     const payment = new Scenes.BaseScene<MySceneContext>('payment');
@@ -1865,10 +1966,10 @@ export class SceneGenerator {
  
 *Причини скарг:*
 ${complaintsList}`;
-    const mediaGroup: InputMediaPhoto[] = reportedUser.photoIds.map(
-      (photoId: string, index: number) => ({
-        type: 'photo',
-        media: photoId,
+    const mediaGroup: MediaGroup = this.userForm.mediaIds.map(
+      (mediaObj: { type: string; id: string }, index: number) => ({
+        type: mediaObj.type as 'document',
+        media: mediaObj.id,
         caption: index === 0 ? message : undefined,
         parse_mode: index === 0 ? 'Markdown' : undefined,
       })
@@ -1957,7 +2058,7 @@ ${complaintsList}`;
               about: userForm.about,
               actualLocation: userForm.actualLocation,
               location: userForm.location,
-              photoIds: userForm.photoIds,
+              mediaIds: userForm.mediaIds,
               likesSentCount: userForm.likesSentCount,
               isActive: userForm.isActive,
               isPremium: userForm.isPremium,
@@ -2089,10 +2190,10 @@ ${complaintsList}`;
 *Вік:* ${user.age}
 *Місто:* ${user.location}` +
         (user.about ? `\n\n*Про себе:* ${user.about}` : '');
-      const mediaGroup: InputMediaPhoto[] = user.photoIds.map(
-        (photoId, index) => ({
-          type: 'photo',
-          media: photoId,
+      const mediaGroup: MediaGroup = this.userForm.mediaIds.map(
+        (mediaObj: { type: string; id: string }, index: number) => ({
+          type: mediaObj.type as 'document',
+          media: mediaObj.id,
           caption: index === 0 ? caption : undefined,
           parse_mode: index === 0 ? 'Markdown' : undefined,
         })

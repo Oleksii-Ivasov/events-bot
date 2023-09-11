@@ -43,10 +43,19 @@ const userFormSchema = new mongoose.Schema({
       message: 'Location must be an object or a string',
     },
   },
-  photoIds: {
-    type: [String],
-    required: true,
-  },
+  mediaIds: [
+    {
+      type: {
+        type: String,
+        required: true,
+      },
+      id: {
+        type: String,
+        required: true,
+      },
+      _id: false,
+    },
+  ],
   likesSentCount: {
     type: Number,
     required: true,

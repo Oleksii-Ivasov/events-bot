@@ -12,7 +12,10 @@ export interface UserForm {
         latitude: number;
       }
     | string;
-  photoIds: string[];
+    mediaIds: {
+      type: string,
+      id: string;
+    }[];
   likesSentCount: number,
   isActive: boolean;
   isPremium: boolean;
