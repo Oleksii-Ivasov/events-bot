@@ -89,11 +89,13 @@ class Bot {
     const transactionStatusMatch = dataString.match(
       /"transactionStatus.":."([^"]+)\\"/
     );
-    const userId = dataString.match(/"orderReference\\":\\"ORDER_\d+_(\d+)\\"/);
     console.log(data);
-    console.log(userId);
-    console.log(orderReference);
-    if (userId && orderReference && transactionStatusMatch) {
+    if ( orderReference && transactionStatusMatch) {
+      console.log('1',orderReference[0]);
+      console.log('2',orderReference[1]);
+      console.log('3',orderReference[2]);
+      console.log('4',orderReference[3]);
+      const userId = orderReference[1];
       const concatenatedString = `${orderReference[1]};${status};${time}`;
       const signature = crypto
         .createHmac('md5', this.configService.get('MERCHANT_SECRET_KEY'))
