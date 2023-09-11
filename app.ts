@@ -82,7 +82,7 @@ class Bot {
 
     const dataString = JSON.stringify(data);
     const orderReference = dataString.match(
-      /"orderReference\\":\\"ORDER_\d+_(\d+)_(\d [a-z]+)\\"/
+      /"orderReference\\":\\"(ORDER_\d+_(\d+)_(\d [a-z]+))\\"/
     );
     const status = 'accept';
     const time = Math.floor(Date.now() / 1000);
@@ -91,11 +91,8 @@ class Bot {
     );
     console.log(data);
     if ( orderReference && transactionStatusMatch) {
-      console.log('1',orderReference[0]);
-      console.log('2',orderReference[1]);
-      console.log('3',orderReference[2]);
-      console.log('4',orderReference[3]);
-      const userId = orderReference[1];
+      const userId = +orderReference[2];
+      const subscriptionPeriod = orderReference[3];
       const concatenatedString = `${orderReference[1]};${status};${time}`;
       const signature = crypto
         .createHmac('md5', this.configService.get('MERCHANT_SECRET_KEY'))
@@ -111,7 +108,24 @@ class Bot {
       console.log(JSON.stringify(responseObject));
       res.json(responseObject);
       if (transactionStatusMatch[1] === 'Approved') {
-        const subscriptionDurationMs = 60 * 60 * 1000; //60 min
+       let subscriptionDurationMs = 0;
+       let subscriptionPeriodUa = '';
+       switch (subscriptionPeriod) {
+        case '1 month':
+          subscriptionDurationMs = 60 * 60 * 1000; // 1 hour (for testing)
+          subscriptionPeriodUa = '1 місяць';
+          break; 
+        case '6 months':
+          subscriptionDurationMs = 60 * 60 * 2 * 1000; // 2 hours (for testing)
+          subscriptionPeriodUa = '6 місяців';
+          break 
+        case '1 year':
+          subscriptionDurationMs = 60 * 60 * 3 * 1000; // 3 hours (for testing)
+          subscriptionPeriodUa =  '1 рік';
+          break 
+        default:
+          return 0;
+      }
         const premiumEndTime = new Date();
         premiumEndTime.setTime(
           premiumEndTime.getTime() + subscriptionDurationMs
@@ -119,7 +133,7 @@ class Bot {
         await client.connect();
         const db = client.db('cluster0');
         await db.collection('users').findOneAndUpdate(
-          { userId: +userId[1] },
+          { userId: userId },
           {
             $set: {
               isPremium: true,
@@ -128,12 +142,12 @@ class Bot {
             },
           }
         );
-        this.bot.telegram.sendMessage(userId[1], 'В тебе тепер є преміум');
+        this.bot.telegram.sendMessage(userId, `В тебе тепер є преміум на ${subscriptionPeriodUa}`);
       } else {
         console.log(transactionStatusMatch[1]);
         if (transactionStatusMatch[1] !== 'Refunded') {
           this.bot.telegram.sendMessage(
-            userId[1],
+            userId,
             'Упс, схоже щось пішло не так. Спробуй потім'
           );
         }
