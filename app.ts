@@ -263,7 +263,7 @@ class Bot {
       await ctx.scene.enter('userform');
     });
     this.bot.command('premium', async (ctx) => {
-      await ctx.scene.enter('payment');
+      await ctx.scene.enter('premiumBenefits');
     });
     this.bot.command('premiumTest', async () => {
       // TEST FUNC DELETE IN PROD!!!!!

@@ -2001,7 +2001,7 @@ ${complaintsList}`;
       await ctx.scene.enter('donate');
     });
     scene.command('premium', async (ctx) => {
-      await ctx.scene.enter('payment');
+      await ctx.scene.enter('premiumBenefits');
     });
     scene.hears('👫 Звичайний пошук', async (ctx) => {
       await ctx.scene.enter('lookForMatch');
