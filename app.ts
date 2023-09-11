@@ -82,16 +82,17 @@ class Bot {
 
     const dataString = JSON.stringify(data);
     const orderReference = dataString.match(
-      /"orderReference\\":\\"(ORDER_\d+_\d+)\\"/
+      /"orderReference\\":\\"ORDER_\d+_(\d+)_(\d [a-z]+)\\"/
     );
     const status = 'accept';
     const time = Math.floor(Date.now() / 1000);
     const transactionStatusMatch = dataString.match(
       /"transactionStatus.":."([^"]+)\\"/
     );
-    console.log(dataString)
     const userId = dataString.match(/"orderReference\\":\\"ORDER_\d+_(\d+)\\"/);
     console.log(data);
+    console.log(userId);
+    console.log(orderReference);
     if (userId && orderReference && transactionStatusMatch) {
       const concatenatedString = `${orderReference[1]};${status};${time}`;
       const signature = crypto
