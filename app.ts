@@ -132,7 +132,7 @@ class Bot {
         );
         await client.connect();
         const db = client.db('cluster0');
-        await db.collection('users').findOneAndUpdate(
+        await db.collection('users').updateOne(
           { userId: userId },
           {
             $set: {
@@ -142,6 +142,12 @@ class Bot {
             },
           }
         );
+        const currentMonth = new Date().getMonth() + 1;
+        await db.collection('payments').updateOne({premiumPeriod: subscriptionPeriodUa}, {
+          $inc: { numberOfPayments: 1 },
+          $set: { currentMonth, subscriptionPeriodUa },
+          
+        },  { upsert: true })
         this.bot.telegram.sendMessage(userId, `В тебе тепер є преміум на ${subscriptionPeriodUa}`);
       } else {
         console.log(transactionStatusMatch[1]);

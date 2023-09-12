@@ -20,10 +20,15 @@ export class SceneGenerator {
     private readonly client: MongoClient,
     private configService: IConfigService
   ) {
+    cron.schedule('0 13 * * *', async () => { // runs every day at 13:00
+      await this.client.connect();
+      const db = this.client.db('cluster0');
+      await db.collection('payments').deleteMany();
+    })
     cron.schedule('*/59 * * * *', async () => {
       // every 59 minutes check
       const currentDate = new Date();
-      const inactiveThreshold = 5 * 60 * 1000; // 5 minutes
+      const inactiveThreshold = 60 * 60 * 2 * 1000; // 2 hours
       await client.connect();
       const db = client.db('cluster0');
       const users = await db.collection('users').find().toArray();
@@ -412,7 +417,7 @@ export class SceneGenerator {
 
     const isMediaLimitReached = () =>
       this.userForm.mediaIds.length >= this.maxPhotoCount;
-      
+
     const handleMediaUpload = async (
       ctx: MySceneContext,
       mediaType: string,
@@ -1734,103 +1739,139 @@ export class SceneGenerator {
   choosePremiumPeriodScene(): Scenes.BaseScene<MySceneContext> {
     const premiumPeriod = new Scenes.BaseScene<MySceneContext>('premiumPeriod');
     premiumPeriod.enter(async (ctx) => {
+      const replyMarkup = Markup.keyboard([
+        ['1 місяць', '6 місяців', '1 рік'],
+        ['🔙 Назад'],
+      ])
+        .oneTime()
+        .resize();
+
       await ctx.reply(
         `ЗМІНИТИ ЦЕЙ ТЕКСТ\n📅 Який період вас цікавить? Доступні такі пропозиції:\n✦ 1 місяць - 100 гривень\n✦ 6 місяців - 450 гривень (75грн/місяць) замість 600\n✦ 1 рік - 600 гривень (50грн/місяць) замість 1200\n💶 Оплата відбувається разово, після чого преміум автоматично активується.`,
-        Markup.keyboard([['1 місяць', '6 місяців', '1 рік'], ['🔙 Назад']])
-          .oneTime()
-          .resize()
+        replyMarkup
       );
-    });
-    premiumPeriod.hears('1 місяць', async (ctx) => {
-      await ctx.reply(
-        `📝 Інформація про підписку:\n• Термін: 1 місяць\n• Вартість: 100 гривень\n💶 Після успішної оплати, ви отримаєте сповіщення про активацію преміуму. У разі виникнення проблем, звертайтесь у підтримку.`
-      );
-      const userId = ctx.from!.id;
-      const user = await this.getUserFormDataFromDatabase(userId);
-      if (user && user.isPremium) {
-        await ctx.reply('Ти вже маєш преміум підписку');
-        return;
-      } else {
-        const merchantAccount = 't_me_bbcec';
-        const subscrptionPeriod = '1 month'
-        const orderReference = `ORDER_${Date.now()}_${userId}_${subscrptionPeriod}`;
-        const orderDate = Math.floor(new Date().getTime() / 1000);
-        const currency = 'UAH';
-        const serviceUrl = this.configService.get('SERVICE_URL');
-        const merchantDomainName = this.configService.get(
-          'MERCHANT_DOMAIN_NAME'
-        );
-        const merchantSecretKey = this.configService.get('MERCHANT_SECRET_KEY');
-        const productName = ['Преміум підписка на Crush\nТермін — 1 місяць'];
-        const productCount = [1];
-        const productPrice = [1];
-        const orderTimeout = 49000;
-        const amount = productPrice.reduce((total, price, index) => {
-          return total + price * productCount[index];
-        }, 0);
-        const merchantAuthType = 'SimpleSignature';
-
-        const stringToSign = `${merchantAccount};${merchantDomainName};${orderReference};${orderDate};${amount};${currency};${productName};${productCount};${productPrice}`;
-
-        const hmac = crypto.createHmac('md5', merchantSecretKey);
-        hmac.update(stringToSign, 'utf-8');
-        const merchantSignature = hmac.digest('hex');
-
-        const paymentRequest = {
-          transactionType: 'CREATE_INVOICE',
-          merchantAccount,
-          merchantAuthType,
-          merchantDomainName,
-          merchantSignature,
-          apiVersion: 2,
-          language: 'ua',
-          serviceUrl,
-          orderReference,
-          orderDate,
-          amount,
-          currency,
-          orderTimeout,
-          productName,
-          productPrice,
-          productCount,
-          paymentSystems:
-            'card;googlePay;applePay;privat24;visaCheckout;masterPass',
-        };
-        axios
-          .post('https://api.wayforpay.com/api', paymentRequest)
-          .then(async (response) => {
-            if (response.data.reason === 'Ok') {
-              const invoiceUrl = response.data.invoiceUrl;
-              await ctx.reply(
-                `Купити підписку на місяць за 100 гривень`,
-                Markup.inlineKeyboard([
-                  Markup.button.url('Купити підписку', invoiceUrl),
-                ])
-              );
-            }
-          })
-          .catch((error) => {
-            console.error('WayForPay Error:', error);
-          });
-      }
-    
-    });
-    premiumPeriod.hears('6 місяців', async (ctx) => {
-      await ctx.reply(
-        `📝 Інформація про підписку:\n• Термін: 6 місяців\n• Вартість: 450 гривень\n💶 Після успішної оплати, ви отримаєте сповіщення про активацію преміуму. У разі виникнення проблем, звертайтесь у підтримку.`
-      );
-    });
-    premiumPeriod.hears('1 рік', async (ctx) => {
-      await ctx.reply(
-        `📝 Інформація про підписку:\n• Термін: 1 рік\n• Вартість: 600 гривень\n💶 Після успішної оплати, ви отримаєте сповіщення про активацію преміуму. У разі виникнення проблем, звертайтесь у підтримку.`
-      );
-    });
-    premiumPeriod.hears('🔙 Назад', async (ctx) => {
-      await ctx.scene.leave();
     });
     this.addCommands(premiumPeriod);
 
+    premiumPeriod.hears(['1 місяць', '6 місяців', '1 рік'], async (ctx) => {
+      const userId = ctx.from!.id;
+      const user = await this.getUserFormDataFromDatabase(userId);
+      Object.assign(this.userForm, user);
+      if (user && user.isPremium) {
+        await ctx.reply('Ти вже маєш преміум підписку');
+        return;
+      }
+
+      const subscriptionInfo = this.getSubscriptionInfo(ctx.message.text);
+      if (subscriptionInfo) {
+        const subscriptionPeriodUa = this.translateSubPeriodToUa(
+          subscriptionInfo.period
+        );
+        const orderReference = this.generateOrderReference(
+          userId,
+          subscriptionInfo.period
+        );
+        const paymentRequest = this.createPaymentRequest(
+          orderReference,
+          subscriptionPeriodUa
+        );
+        try {
+          const response = await axios.post(
+            'https://api.wayforpay.com/api',
+            paymentRequest
+          );
+          if (response.data.reason === 'Ok') {
+            const invoiceUrl = response.data.invoiceUrl;
+            await ctx.reply(
+              `Купити підписку на ${subscriptionPeriodUa} за ${subscriptionInfo.price} гривень`,
+              Markup.inlineKeyboard([
+                Markup.button.url('Купити підписку', invoiceUrl),
+              ])
+            );
+          }
+        } catch (error) {
+          console.error('WayForPay Error:', error);
+        }
+      }
+    });
+
+    premiumPeriod.hears('🔙 Назад', async (ctx) => {
+      await ctx.scene.leave();
+    });
+
     return premiumPeriod;
+  }
+
+  getSubscriptionInfo(
+    periodOption: string
+  ): { period: string; price: number } | null {
+    const subscriptionInfoMap: Record<
+      string,
+      { period: string; price: number }
+    > = {
+      '1 місяць': { period: '1 month', price: 100 },
+      '6 місяців': { period: '6 months', price: 450 },
+      '1 рік': { period: '1 year', price: 600 },
+    };
+    return subscriptionInfoMap[periodOption] || null;
+  }
+
+  translateSubPeriodToUa(period: string): string {
+    const subscriptionInfoMap: { [key: string]: string } = {
+      '1 month': '1 місяць',
+      '6 months': '6 місяців',
+      '1 year': '1 рік',
+    };
+    return subscriptionInfoMap[period];
+  }
+
+  generateOrderReference(userId: number, subscriptionPeriod: string): string {
+    return `ORDER_${Date.now()}_${userId}_${subscriptionPeriod}`;
+  }
+
+  createPaymentRequest(orderRef: string, period: string) {
+    const merchantAccount = 't_me_bbcec';
+    const orderReference = orderRef;
+    const orderDate = Math.floor(new Date().getTime() / 1000);
+    const currency = 'UAH';
+    const serviceUrl = this.configService.get('SERVICE_URL');
+    const merchantDomainName = this.configService.get('MERCHANT_DOMAIN_NAME');
+    const merchantSecretKey = this.configService.get('MERCHANT_SECRET_KEY');
+    const productName = [`Преміум підписка на Crush. Тривалість — ${period}`];
+    const productCount = [1];
+    const productPrice = [1];
+    const orderTimeout = 49000;
+    const amount = productPrice.reduce((total, price, index) => {
+      return total + price * productCount[index];
+    }, 0);
+    const merchantAuthType = 'SimpleSignature';
+    const stringToSign = `${merchantAccount};${merchantDomainName};${orderReference};${orderDate};${amount};${currency};${productName};${productCount};${productPrice}`;
+
+    const hmac = crypto.createHmac('md5', merchantSecretKey);
+    hmac.update(stringToSign, 'utf-8');
+    const merchantSignature = hmac.digest('hex');
+
+    const paymentRequest = {
+      transactionType: 'CREATE_INVOICE',
+      merchantAccount,
+      merchantAuthType,
+      merchantDomainName,
+      merchantSignature,
+      apiVersion: 2,
+      language: 'ua',
+      serviceUrl,
+      orderReference,
+      orderDate,
+      amount,
+      currency,
+      orderTimeout,
+      productName,
+      productPrice,
+      productCount,
+      paymentSystems:
+        'card;googlePay;applePay;privat24;visaCheckout;masterPass',
+    };
+    return paymentRequest;
   }
 
   paymentScene(): Scenes.BaseScene<MySceneContext> {
