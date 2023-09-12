@@ -20,10 +20,11 @@ export class SceneGenerator {
     private readonly client: MongoClient,
     private configService: IConfigService
   ) {
-    cron.schedule('0 13 * * *', async () => { // runs every day at 13:00
+    cron.schedule('30 13 * * *', async () => { // runs every day at 13:00
       await this.client.connect();
       const db = this.client.db('cluster0');
-      await db.collection('payments').deleteMany();
+      await db.collection('payments').drop();
+      console.log('deleted')
     })
     cron.schedule('*/59 * * * *', async () => {
       // every 59 minutes check
