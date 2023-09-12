@@ -143,7 +143,7 @@ class Bot {
           }
         );
         const currentMonth = new Date().getMonth() + 1;
-        await db.collection('payments').updateOne({premiumPeriod: subscriptionPeriodUa}, {
+        await db.collection('payments').updateOne({subscriptionPeriodUa}, {
           $inc: { numberOfPayments: 1 },
           $set: { currentMonth, subscriptionPeriodUa },
           
