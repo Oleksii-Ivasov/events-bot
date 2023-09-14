@@ -20,12 +20,6 @@ export class SceneGenerator {
     private readonly client: MongoClient,
     private configService: IConfigService
   ) {
-    cron.schedule('30 13 * * *', async () => { // runs every day at 13:00
-      await this.client.connect();
-      const db = this.client.db('cluster0');
-      await db.collection('payments').drop();
-      console.log('deleted')
-    })
     cron.schedule('*/59 * * * *', async () => {
       // every 59 minutes check
       const currentDate = new Date();
@@ -112,6 +106,7 @@ export class SceneGenerator {
     isActive: true,
     isPremium: false,
     premiumEndTime: null,
+    showPremiumLable: true,
     lastActive: new Date().toLocaleString(),
   });
   event: Event = {
@@ -507,30 +502,16 @@ export class SceneGenerator {
         if (userForm) {
           Object.assign(this.userForm, userForm);
           await this.registerUserLastActivity(userForm.userId);
-          let caption = '';
-          caption = `Так виглядає твій профіль:
-*Ім'я:* ${userForm.username}
-*Вік:* ${userForm.age}
-*Місто:* ${userForm.location}`;
-          if (userForm.about) {
-            caption = caption + `\n\n*Про себе:* ${userForm.about}`;
-          }
-          const mediaGroup: MediaGroup = this.userForm.mediaIds.map(
-            (mediaObj: { type: string; id: string }, index: number) => ({
-              type: mediaObj.type as 'document',
-              media: mediaObj.id,
-              caption: index === 0 ? caption : undefined,
-              parse_mode: index === 0 ? 'Markdown' : undefined,
-            })
-          );
+          const mediaGroup = this.showUserProfile(this.userForm);
           await ctx.replyWithMediaGroup(mediaGroup);
           await ctx.reply(
             `✍🏻 — Редагувати профіль
 🆕 — Додати подію
 🎟 — Мої події
 🗄 — Архів лайків
+⭐️ — Преміум налаштування
 ❌ — Приховати профіль`,
-            Markup.keyboard([['✍🏻', '🆕', '🎟', '🗄', '❌']])
+            Markup.keyboard([['✍🏻', '🆕', '🎟', '🗄', '⭐️', '❌']])
               .oneTime()
               .resize()
           );
@@ -582,6 +563,18 @@ export class SceneGenerator {
           userFormScene.hears('🗄', async (ctx) => {
             await ctx.scene.enter('likeArchive');
           });
+          userFormScene.hears('⭐️', async (ctx) => {
+            if (this.userForm.isPremium) {
+              await ctx.scene.enter('premiumSettings');
+            } else {
+              await ctx.reply(
+                'В тебе поки немає преміуму, але ти завжди можеш його придбати',
+                Markup.keyboard([['⭐️ Купити преміум']])
+                  .oneTime()
+                  .resize()
+              );
+            }
+          });
           userFormScene.hears('❌', async (ctx) => {
             await ctx.reply(
               `Після підтвердження, ваша анкета не буде відображатися іншим користувачам.
@@ -614,11 +607,15 @@ export class SceneGenerator {
 🆕 — Додати подію
 🎟 — Мої події
 🗄 — Архів лайків
+⭐️ — Преміум налаштування
 ❌ — Приховати профіль`,
-              Markup.keyboard([['✍🏻', '🆕', '🎟', '🗄', '❌']])
+              Markup.keyboard([['✍🏻', '🆕', '🎟', '🗄', '⭐️', '❌']])
                 .oneTime()
                 .resize()
             );
+          });
+          userFormScene.hears('⭐️ Купити преміум', async (ctx) => {
+            await ctx.scene.enter('showPremiumBenefits');
           });
           userFormScene.on('message', async (ctx) => {
             await ctx.reply(
@@ -626,8 +623,9 @@ export class SceneGenerator {
 🆕 — Додати подію
 🎟 — Мої події
 🗄 — Архів лайків
+⭐️ — Преміум налаштування
 ❌ — Приховати профіль`,
-              Markup.keyboard([['✍🏻', '🆕', '🎟', '🗄', '❌']])
+              Markup.keyboard([['✍🏻', '🆕', '🎟', '🗄', '⭐️', '❌']])
                 .oneTime()
                 .resize()
             );
@@ -1115,27 +1113,63 @@ export class SceneGenerator {
         if (aggregationResult.length > 0) {
           distinctViewedUserIds = aggregationResult[0].viewedUserIds;
         }
-        const query = {
-          $and: [
-            {
-              userId: { $ne: this.userForm.userId },
-              actualLocation: this.userForm.actualLocation,
-              gender:
-                this.userForm.lookingFor === 'both'
-                  ? { $in: ['male', 'female'] }
-                  : this.userForm.lookingFor,
-              lookingFor: { $in: [this.userForm.gender, 'both'] },
-              isActive: true,
+        const pipeline = [
+          {
+            $match: {
+              $and: [
+                {
+                  userId: { $ne: this.userForm.userId },
+                  actualLocation: this.userForm.actualLocation,
+                  gender:
+                    this.userForm.lookingFor === 'both'
+                      ? { $in: ['male', 'female'] }
+                      : this.userForm.lookingFor,
+                  lookingFor: { $in: [this.userForm.gender, 'both'] },
+                  isActive: true,
+                },
+                {
+                  userId: { $nin: distinctViewedUserIds },
+                },
+              ],
             },
-            { userId: { $nin: distinctViewedUserIds } },
-          ],
-        };
-        userMatchForms = await db.collection('users').find(query).toArray();
-        await this.sendUserDetails(
-          userMatchForms as unknown as UserForm[],
-          currentUserIndex,
-          ctx
-        );
+          },
+          {
+            $addFields: {
+              randomWeight: { $rand: {} },
+            },
+          },
+          {
+            $addFields: {
+              isPremiumWeight: {
+                $cond: {
+                  if: { $eq: ['$isPremium', true] },
+                  then: { $add: ['$randomWeight', 0.5] },
+                  else: '$randomWeight',
+                },
+              },
+            },
+          },
+          {
+            $sort: { isPremiumWeight: -1 },
+          },
+        ];
+
+        userMatchForms = await db
+          .collection('users')
+          .aggregate(pipeline)
+          .toArray();
+        if (userMatchForms.length > 0) {
+          await this.sendUserDetails(
+            userMatchForms as unknown as UserForm[],
+            currentUserIndex,
+            ctx
+          );
+        } else {
+          await ctx.reply(
+            'Користувачів за такими параметрами не знайдено\nСпробуй змінити параметри пошуку або зачекай',
+            Markup.removeKeyboard()
+          );
+        }
       } else {
         await ctx.reply(
           'Щоб переглядати профілі інших користувачів, необхіодно створити свій',
@@ -1196,11 +1230,6 @@ export class SceneGenerator {
             username || `[${ctx.from?.first_name}](${userLink})`;
           const userForm = await this.getUserFormDataFromDatabase(userId);
           if (userForm) {
-            //             let message = `👀Один краш поставив вподобайку твоєму профілю
-            // 🧘🏼*Краш:* ${this.userForm.username}, ${this.userForm.age}, ${this.userForm.location}`;
-            //             if (userForm.about) {
-            //               message = message + `, ${userForm.about}`;
-            //             }
             await ctx.telegram.sendMessage(
               previousUserId,
               `👀Один краш поставив вподобайку твоєму профілю, щоб переглянути хто це перейди у *архів лайків* 🗄`,
@@ -1319,11 +1348,6 @@ export class SceneGenerator {
       this.reportedUserId = userMatchForms[currentUserIndex]?.userId;
       ctx.scene.enter('complaint');
       currentUserIndex++;
-      // await this.sendUserDetails(
-      //   userMatchForms as unknown as UserForm[],
-      //   currentUserIndex,
-      //   ctx
-      // );
     });
     this.addCommands(lookForMatch);
     lookForMatch.on('message', async (ctx) => {
@@ -1597,6 +1621,163 @@ export class SceneGenerator {
     });
     this.addCommands(likeArchive);
     return likeArchive;
+  }
+
+  promocodeScene(): Scenes.BaseScene<MySceneContext> {
+    const promocode = new Scenes.BaseScene<MySceneContext>('promocode');
+    promocode.enter(async (ctx) => {
+      await ctx.reply(
+        'Якщо маєш промокод введи його тут 👇🏻',
+        Markup.removeKeyboard()
+      );
+    });
+    this.addCommands(promocode);
+    promocode.hears('👤 Створити профіль', async (ctx) => {
+      await ctx.scene.enter('userform');
+    });
+    promocode.on('text', async (ctx) => {
+      const userCode = ctx.message.text;
+      await this.client.connect();
+      const db = this.client.db('cluster0');
+      const promoCode = await db
+        .collection('promocodes')
+        .findOne({ promocode: userCode });
+      if (promoCode) {
+        const user = await db
+          .collection('users')
+          .findOne({ userId: ctx.from.id });
+        if (user) {
+          Object.assign(this.userForm, user);
+          if (!promoCode.usedBy.includes(user.userId)) {
+            if (promoCode.amount > 0) {
+              if (promoCode.type === 'premium') {
+                if (user.isPremium) {
+                  await ctx.reply(
+                    'На жаль, в тебе вже є преміум. Але цей промокод ти можеш подарувати своєму знайомому'
+                  );
+                } else {
+                  let subscriptionDurationMs = 0;
+                  switch (promoCode.premiumPeriod) {
+                    case '1 місяць':
+                      subscriptionDurationMs = 60 * 60 * 1000; // 1 hour (for testing)
+                      break;
+                    case '6 місяців':
+                      subscriptionDurationMs = 60 * 60 * 2 * 1000; // 2 hours
+                      break;
+                    case '1 рік':
+                      subscriptionDurationMs = 60 * 60 * 3 * 1000; // 3 hours
+                      break;
+                  }
+                  const premiumEndTime = new Date();
+                  premiumEndTime.setTime(
+                    premiumEndTime.getTime() + subscriptionDurationMs
+                  );
+                  await this.client.connect();
+                  const db = this.client.db('cluster0');
+                  await db.collection('users').updateOne(
+                    { userId: user.userId },
+                    {
+                      $set: {
+                        isPremium: true,
+                        premiumEndTime: premiumEndTime,
+                        likesSentCount: 0,
+                      },
+                    }
+                  );
+                  await ctx.reply(
+                    `В тебе тепер є преміум на ${promoCode.premiumPeriod} 🥳`
+                  );
+                  await db.collection('promocodes').updateOne(
+                    { promocode: userCode },
+                    {
+                      $push: { usedBy: user.userId },
+                      $inc: { amount: -1 },
+                    }
+                  );
+                }
+              }
+            } else {
+              await ctx.reply(
+                'Цей промокод вже використали, наступого разу пощастить більше 🤗'
+              );
+            }
+          } else {
+            await ctx.reply('Ти вже використав цей промокод');
+          }
+        } else {
+          await ctx.reply(
+            'Щоб користуватись промокодами спочатку треба створити акаунт',
+            Markup.keyboard([['👤 Створити профіль']])
+              .oneTime()
+              .resize()
+          );
+        }
+      }
+    });
+    promocode.on('message', async (ctx) => {
+      await ctx.reply(
+        'Якщо маєш промокод введи його тут 👇🏻',
+        Markup.removeKeyboard()
+      );
+    });
+    return promocode;
+  }
+
+  premiumSettingsScene(): Scenes.BaseScene<MySceneContext> {
+    const premiumSettings = new Scenes.BaseScene<MySceneContext>(
+      'premiumSettings'
+    );
+    premiumSettings.enter(async (ctx) => {
+      if (this.userForm.isPremium) {
+        const buttonText = this.userForm.showPremiumLabel
+          ? '⭐️ — Сховати надпис'
+          : '⭐️ — Показати надпис';
+        await ctx.reply(
+          `${buttonText} ⭐️ *Premium Crush* в профілі\n❤️ — Сховати статистику під профілем (ще не створено)\n<Вставити смайл> — Переглянути свою статистику (ще не створено)`,
+          {
+            parse_mode: 'Markdown',
+            reply_markup: {
+              keyboard: [['⭐️']],
+              resize_keyboard: true,
+            },
+          }
+        );
+      }
+    });
+    premiumSettings.hears('⭐️', async (ctx) => {
+      const message = this.userForm.showPremiumLabel
+        ? '✅ Надпис прибрано'
+        : '✅ Надпис додано';
+      this.client.connect();
+      const db = this.client.db('cluster0');
+      const updateField = this.userForm.showPremiumLabel
+        ? { showPremiumLabel: false }
+        : { showPremiumLabel: true };
+      await db
+        .collection('users')
+        .updateOne({ userId: ctx.from.id }, { $set: updateField });
+      this.userForm.showPremiumLabel = !this.userForm.showPremiumLabel;
+      await ctx.reply(message, Markup.removeKeyboard());
+    });
+    this.addCommands(premiumSettings);
+    premiumSettings.on('message', async (ctx) => {
+      if (this.userForm.isPremium) {
+        const buttonText = this.userForm.showPremiumLabel
+          ? '⭐️ — Сховати надпис'
+          : '⭐️ — Показати надпис';
+        await ctx.reply(
+          `${buttonText} ⭐️ *Premium Crush* в профілі\n❤️ — Сховати статистику під профілем (ще не створено)\n<Вставити смайл> — Переглянути свою статистику (ще не створено)`,
+          {
+            parse_mode: 'Markdown',
+            reply_markup: {
+              keyboard: [['⭐️']],
+              resize_keyboard: true,
+            },
+          }
+        );
+      }
+    });
+    return premiumSettings;
   }
 
   moderateScene(): Scenes.BaseScene<MySceneContext> {
@@ -1875,80 +2056,6 @@ export class SceneGenerator {
     return paymentRequest;
   }
 
-  paymentScene(): Scenes.BaseScene<MySceneContext> {
-    const payment = new Scenes.BaseScene<MySceneContext>('payment');
-    payment.enter(async (ctx) => {
-      const userId = ctx.from!.id;
-      const user = await this.getUserFormDataFromDatabase(userId);
-      if (user && user.isPremium) {
-        await ctx.reply('Ти вже маєш преміум підписку');
-        return;
-      } else {
-        const merchantAccount = 't_me_bbcec';
-        const orderReference = `ORDER_${Date.now()}_${userId}`;
-        const orderDate = Math.floor(new Date().getTime() / 1000);
-        const currency = 'UAH';
-        const serviceUrl = this.configService.get('SERVICE_URL');
-        const merchantDomainName = this.configService.get(
-          'MERCHANT_DOMAIN_NAME'
-        );
-        const merchantSecretKey = this.configService.get('MERCHANT_SECRET_KEY');
-        const productName = ['Преміум підписка'];
-        const productCount = [1];
-        const productPrice = [1];
-        const orderTimeout = 49000;
-        const amount = productPrice.reduce((total, price, index) => {
-          return total + price * productCount[index];
-        }, 0);
-        const merchantAuthType = 'SimpleSignature';
-
-        const stringToSign = `${merchantAccount};${merchantDomainName};${orderReference};${orderDate};${amount};${currency};${productName};${productCount};${productPrice}`;
-
-        const hmac = crypto.createHmac('md5', merchantSecretKey);
-        hmac.update(stringToSign, 'utf-8');
-        const merchantSignature = hmac.digest('hex');
-
-        const paymentRequest = {
-          transactionType: 'CREATE_INVOICE',
-          merchantAccount,
-          merchantAuthType,
-          merchantDomainName,
-          merchantSignature,
-          apiVersion: 2,
-          language: 'ua',
-          serviceUrl,
-          orderReference,
-          orderDate,
-          amount,
-          currency,
-          orderTimeout,
-          productName,
-          productPrice,
-          productCount,
-          paymentSystems:
-            'card;googlePay;applePay;privat24;visaCheckout;masterPass',
-        };
-        axios
-          .post('https://api.wayforpay.com/api', paymentRequest)
-          .then(async (response) => {
-            if (response.data.reason === 'Ok') {
-              const invoiceUrl = response.data.invoiceUrl;
-              await ctx.reply(
-                `Купити підписку на місяць за 80 гривень`,
-                Markup.inlineKeyboard([
-                  Markup.button.url('Купити підписку', invoiceUrl),
-                ])
-              );
-            }
-          })
-          .catch((error) => {
-            console.error('WayForPay Error:', error);
-          });
-      }
-    });
-    return payment;
-  }
-
   donateScene(): Scenes.BaseScene<MySceneContext> {
     const donate = new Scenes.BaseScene<MySceneContext>('donate');
     donate.enter(async (ctx) => {
@@ -1964,6 +2071,7 @@ export class SceneGenerator {
         ])
       );
     });
+    this.addCommands(donate);
     donate.on('message', async (ctx) => {
       await ctx.scene.enter('greeting');
     });
@@ -1979,6 +2087,7 @@ export class SceneGenerator {
         { parse_mode: 'Markdown' }
       );
     });
+    this.addCommands(help);
     help.on('message', async (ctx) => {
       await ctx.scene.enter('greeting');
     });
@@ -2022,9 +2131,10 @@ ${complaintsList}`;
     scene.command('start', async (ctx) => {
       await ctx.reply(`Вітаємо в ком'юніті Crush! 👋🏻
 
-💝 Crush — український бот знайомств, який наповнить твоє життя приємними моментами. Він допоможе тобі знайти компаньона на якусь подію або просто прогулянку в парку, а також знайти кохану людину, друга або подругу!
+💝 Crush — український бот знайомств, який наповнить твоє життя приємними моментами. Він допоможе тобі знайти ідеального компаньйона для будь-якої події або просто для приємної прогулянки в парку. А можливо, саме тут ти знайдеш свою кохану людину, нового друга або подругу для незабутніх спільних моментів!
       
-Команда crush’а міцно обійняла тебе🫂`);
+Команда crush’а міцно обійняла тебе🫂
+      `);
       await ctx.scene.enter('greeting');
     });
     scene.command('events', async (ctx) => {
@@ -2044,6 +2154,9 @@ ${complaintsList}`;
     });
     scene.command('premium', async (ctx) => {
       await ctx.scene.enter('premiumBenefits');
+    });
+    scene.command('code', async (ctx) => {
+      await ctx.scene.enter('promocode');
     });
     scene.hears('👫 Звичайний пошук', async (ctx) => {
       await ctx.scene.enter('lookForMatch');
@@ -2105,6 +2218,7 @@ ${complaintsList}`;
               isActive: userForm.isActive,
               isPremium: userForm.isPremium,
               premiumEndTime: userForm.premiumEndTime,
+              showPremiumLabel: userForm.showPremiumLabel,
               lastActive: userForm.lastActive,
             },
           }
@@ -2228,6 +2342,7 @@ ${complaintsList}`;
     const user = userArrayFromDB[currentIndex];
     if (user) {
       const caption =
+        (user.isPremium ? `⭐️ *Premium Crush*\n\n` : '') +
         `*Ім'я:* ${user.username}
 *Вік:* ${user.age}
 *Місто:* ${user.location}` +
@@ -2248,6 +2363,27 @@ ${complaintsList}`;
         Markup.removeKeyboard()
       );
     }
+  }
+
+  showUserProfile(userForm: UserForm): MediaGroup {
+    const caption =
+      (userForm.isPremium && -userForm.showPremiumLabel
+        ? `⭐️ *Premium Crush*\n\n`
+        : '') +
+      `Так виглядає твій профіль:
+*Ім'я:* ${userForm.username}
+*Вік:* ${userForm.age}
+*Місто:* ${userForm.location}` +
+      (userForm.about ? `\n\n*Про себе:* ${userForm.about}` : '');
+    const mediaGroup: MediaGroup = this.userForm.mediaIds.map(
+      (mediaObj: { type: string; id: string }, index: number) => ({
+        type: mediaObj.type as 'document',
+        media: mediaObj.id,
+        caption: index === 0 ? caption : undefined,
+        parse_mode: index === 0 ? 'Markdown' : undefined,
+      })
+    );
+    return mediaGroup;
   }
   async showEvent(events: Event[], currentIndex: number, ctx: MySceneContext) {
     const event = events[currentIndex];
