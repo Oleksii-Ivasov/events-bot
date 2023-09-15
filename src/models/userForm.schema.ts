@@ -68,7 +68,7 @@ const userFormSchema = new mongoose.Schema({
     type: Boolean,
     required: true,
   },
-  premiumEndTime: { type: Date, default: null },
+  premiumEndTime: { type: Date, default: undefined },
   showPremiumLabel: {
     type: Boolean,
     required: true,

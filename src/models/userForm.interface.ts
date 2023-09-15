@@ -19,7 +19,7 @@ export interface UserForm {
   likesSentCount: number;
   isActive: boolean;
   isPremium: boolean;
-  premiumEndTime: Date | null;
+  premiumEndTime?: Date | undefined;
   showPremiumLabel: boolean;
   lastActive: string;
 }

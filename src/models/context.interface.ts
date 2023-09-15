@@ -1,12 +1,10 @@
-import { Context, Scenes } from "telegraf"
+import { Context, Scenes } from 'telegraf';
+import { UserForm } from './userForm.interface';
 
-export interface SessionData {
-    like: boolean
+export interface MySceneContext extends Context {
+  session: {
+    __scenes: { current: string; state: object; expires: number };
+    userForm: UserForm;
+  };
+  scene: Scenes.SceneContextScene<MySceneContext>;
 }
-export interface IBotContext extends Context {
-    session: SessionData
-}
-
- export interface MySceneContext extends Context {
-      scene: Scenes.SceneContextScene<MySceneContext>;
-    }

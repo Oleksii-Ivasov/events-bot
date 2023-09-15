@@ -1,7 +1,7 @@
-import { Markup, Scenes, Telegraf } from 'telegraf';
+import { Markup, Scenes, Telegraf, session } from 'telegraf';
 import { SceneGenerator } from './src/scenes/scenes';
 import { MySceneContext } from './src/models/context.interface';
-import LocalSession from 'telegraf-session-local';
+//import LocalSession from 'telegraf-session-local';
 import { IConfigService } from './src/models/config.interface';
 import { ConfigService } from './src/config/config.service';
 import { MongoClient, ServerApiVersion } from 'mongodb';
@@ -20,6 +20,10 @@ const client = new MongoClient(uri, {
     deprecationErrors: true,
   },
 });
+
+const SUBSCRIPTION_DURAION_1MONTH = 60 * 60 * 1000 // 1 hour
+const SUBSCRIPTION_DURAION_6MONTHS = 60 * 60 * 2 * 1000 // 2 hour
+const SUBSCRIPTION_DURAION_1YEAR = 60 * 60 * 3 * 1000 // 3 hour
 
 async function run() {
   try {
@@ -114,15 +118,15 @@ class Bot {
        let subscriptionPeriodUa = '';
        switch (subscriptionPeriod) {
         case '1 month':
-          subscriptionDurationMs = 60 * 60 * 1000; // 1 hour (for testing)
+          subscriptionDurationMs = SUBSCRIPTION_DURAION_1MONTH
           subscriptionPeriodUa = '1 місяць';
           break; 
         case '6 months':
-          subscriptionDurationMs = 60 * 60 * 2 * 1000; // 2 hours (for testing)
+          subscriptionDurationMs = SUBSCRIPTION_DURAION_6MONTHS
           subscriptionPeriodUa = '6 місяців';
           break 
         case '1 year':
-          subscriptionDurationMs = 60 * 60 * 3 * 1000; // 3 hours (for testing)
+          subscriptionDurationMs = SUBSCRIPTION_DURAION_1YEAR
           subscriptionPeriodUa =  '1 рік';
           break 
         default:
@@ -165,7 +169,8 @@ class Bot {
 
   constructor(private readonly configService: IConfigService) {
     this.bot = new Telegraf(this.configService.get('TOKEN'));
-    this.bot.use(new LocalSession({ database: 'sessions.json' }).middleware());
+    this.bot.use(session());
+   // this.bot.use(new LocalSession({ database: 'sessions.json' }).middleware());
     this.bot.use(this.stage.middleware());
     app.use(bodyParser.urlencoded({ extended: true }));
     app.get('/', (req, res) => {
@@ -294,9 +299,12 @@ class Bot {
     this.bot.command('code', async (ctx) => {
       await ctx.scene.enter('promocode');
     });
+    this.bot.hears('🗄 Перейти у архів', async (ctx) => {
+      await ctx.scene.enter('likeArchive');
+    });
     this.bot.command('premiumTest', async () => {
       // TEST FUNC DELETE IN PROD!!!!!
-      const subscriptionDurationMs = 60 * 60 * 1000; //60 min
+      const subscriptionDurationMs = 60 * 60 * 1000; //5 min
       const premiumEndTime = new Date();
       premiumEndTime.setTime(premiumEndTime.getTime() + subscriptionDurationMs);
       await client.connect();
