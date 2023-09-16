@@ -21,5 +21,9 @@ export interface UserForm {
   isPremium: boolean;
   premiumEndTime?: Date | undefined;
   showPremiumLabel: boolean;
+  showLikesCount: boolean;
   lastActive: string;
+  likesCount: number;
+  dislikesCount: number;
+  registrationDate:string
 }

@@ -2,7 +2,7 @@ import { Markup, Scenes } from 'telegraf';
 import { MySceneContext } from '../models/context.interface';
 import { UserForm } from '../models/userForm.interface';
 import { UserFormModel } from '../models/userForm.schema';
-import { MongoClient } from 'mongodb';
+import { Db, MongoClient } from 'mongodb';
 import axios from 'axios';
 import { IConfigService } from '../models/config.interface';
 import { Event } from '../models/event.interface';
@@ -14,85 +14,107 @@ import cron from 'node-cron';
 import { MediaGroup } from 'telegraf/typings/telegram-types';
 
 const MAX_LIKES_LIMIT = 2;
-const TIME_TO_VIEW_EXPIRE = 60 * 60 * 1000 // 1 hour
-const INACTIVE_USER_TIME = 60 * 60 * 2 * 1000 // 2 hour
-const SUBSCRIPTION_DURAION_1MONTH = 60 * 60 * 1000 // 1 hour
-const SUBSCRIPTION_DURAION_6MONTHS = 60 * 60 * 2 * 1000 // 2 hour
-const SUBSCRIPTION_DURAION_1YEAR = 60 * 60 * 3 * 1000 // 3 hour
-const FIRST_BAN_TIME = 60 * 60 * 1000 // 1 hour
-const SECOND_BAN_TIME = 60 * 60 * 2 * 1000 // 2 hour
-const PERMANENT_BAN_TIME = 60 * 60 * 60 * 60 * 1000
-const SUBSCRIPTION_DURATION_TEST = 60 * 60 * 1000 // 1 hour
+const TIME_TO_VIEW_EXPIRE = 60 * 60 * 1000; // 1 hour
+const INACTIVE_USER_TIME = 60 * 60 * 2 * 1000; // 2 hour
+const SUBSCRIPTION_DURAION_1MONTH = 60 * 60 * 1000; // 1 hour
+const SUBSCRIPTION_DURAION_6MONTHS = 60 * 60 * 2 * 1000; // 2 hour
+const SUBSCRIPTION_DURAION_1YEAR = 60 * 60 * 3 * 1000; // 3 hour
+const FIRST_BAN_TIME = 60 * 60 * 1000; // 1 hour
+const SECOND_BAN_TIME = 60 * 60 * 2 * 1000; // 2 hour
+const PERMANENT_BAN_TIME = 60 * 60 * 60 * 60 * 1000;
+const SUBSCRIPTION_DURATION_TEST = 60 * 60 * 1000; // 1 hour
 
 export class SceneGenerator {
+  private db!: Db;
+  private isConnectionOpened = false;
   constructor(
     private readonly client: MongoClient,
     private configService: IConfigService
   ) {
+    this.connectToMongoDB();
     cron.schedule('*/3 * * * *', async () => {
       // every 59 minutes check
-      const currentDate = new Date();
-      const inactiveThreshold = INACTIVE_USER_TIME; // 2 hours
-      await client.connect();
-      const db = client.db('cluster0');
-      const users = await db.collection('users').find().toArray();
+      try {
+        if (!this.isConnectionOpened) {
+          await this.client.connect();
+        }
+        const currentDate = new Date();
+        const inactiveThreshold = INACTIVE_USER_TIME; // 2 hours
 
-      for (const user of users) {
-        const lastActiveTimestamp = new Date(user.lastActive).getTime();
-        const inactiveDuration = currentDate.getTime() - lastActiveTimestamp;
-
-        if (inactiveDuration >= inactiveThreshold) {
+        console.log('scheduler connected');
+        const users = await this.db.collection('users').find().toArray(); // the line where error happens
+        for (const user of users) {
+          const lastActiveTimestamp = new Date(user.lastActive).getTime();
+          const inactiveDuration = currentDate.getTime() - lastActiveTimestamp;
+          if (inactiveDuration >= inactiveThreshold) {
+            axios.post(
+              `https://api.telegram.org/bot${this.configService.get(
+                'TOKEN'
+              )}/sendMessage`,
+              {
+                chat_id: user.userId,
+                text: 'Тебе давно не було тут',
+              }
+            );
+          }
+        }
+        const usersToResetLikes = await this.db
+          .collection('users')
+          .find({
+            isPremium: false,
+            likesSentCount: { $gt: 0 },
+          })
+          .toArray();
+        for (const user of usersToResetLikes) {
+          await this.db
+            .collection('users')
+            .updateOne(
+              { userId: user.userId },
+              { $set: { likesSentCount: 0 } }
+            );
+        }
+        const usersToCheck = await this.db
+          .collection('users')
+          .find({
+            isPremium: true,
+            premiumEndTime: { $lte: currentDate },
+          })
+          .toArray();
+        for (const user of usersToCheck) {
           axios.post(
             `https://api.telegram.org/bot${this.configService.get(
               'TOKEN'
             )}/sendMessage`,
             {
               chat_id: user.userId,
-              text: 'Тебе давно не було тут',
+              text: 'Преміум закінчився',
+            }
+          );
+          await this.db.collection('users').updateOne(
+            { userId: user.userId },
+            {
+              $set: {
+                isPremium: false,
+                premiumEndTime: null,
+              },
             }
           );
         }
-      }
-      const usersToResetLikes = await db
-        .collection('users')
-        .find({
-          isPremium: false,
-          likesSentCount: { $gt: 0 },
-        })
-        .toArray();
-      for (const user of usersToResetLikes) {
-        await db
-          .collection('users')
-          .updateOne({ userId: user.userId }, { $set: { likesSentCount: 0 } });
-      }
-      const usersToCheck = await db
-        .collection('users')
-        .find({
-          isPremium: true,
-          premiumEndTime: { $lte: currentDate },
-        })
-        .toArray();
-      for (const user of usersToCheck) {
-        axios.post(
-          `https://api.telegram.org/bot${this.configService.get(
-            'TOKEN'
-          )}/sendMessage`,
-          {
-            chat_id: user.userId,
-            text: 'Преміум закінчився',
-          }
-        );
-        await db.collection('users').updateOne(
-          { userId: user.userId },
-          {
-            $set: {
-              isPremium: false,
-              premiumEndTime: null,
-            },
-          }
-        );
+      } catch (error) {
+        console.error('Error while running main scheduler: ', error);
       }
     });
+  }
+  private async connectToMongoDB() {
+    try {
+      await this.client.connect();
+      this.db = this.client.db('cluster0');
+      this.client.on('open', () => {
+        this.isConnectionOpened = true;
+      });
+    } catch (error) {
+      console.error('Error connecting to MongoDB:', error);
+    }
   }
   API_KEY = this.configService.get('API_KEY');
   event: Event = {
@@ -115,8 +137,7 @@ export class SceneGenerator {
           Markup.keyboard([['Створити профіль']]).resize()
         );
       } else {
-        await ctx.reply('⬇️⁣', Markup.removeKeyboard());
-        await this.registerUserLastActivity(user.userId);
+        await ctx.scene.enter('userform');
       }
     });
     greeting.command('moderate', async (ctx) => {
@@ -181,26 +202,7 @@ export class SceneGenerator {
     gender.enter(async (ctx) => {
       const user = await this.getUserFormDataFromDatabase(ctx.from!.id);
       if (!user) {
-        ctx.session.userForm = new UserFormModel({
-          userId: NaN,
-          username: '',
-          gender: 'male',
-          lookingFor: 'both',
-          age: NaN,
-          about: '',
-          actualLocation: {
-            longitude: NaN,
-            latitude: NaN,
-          },
-          location: '',
-          mediaIds: [],
-          likesSentCount: 0,
-          isActive: true,
-          isPremium: false,
-          premiumEndTime: undefined,
-          showPremiumLabel: true,
-          lastActive: new Date().toLocaleString(),
-        });
+        ctx.session.userForm = new UserFormModel({});
       } else {
         Object.assign(ctx.session.userForm, user);
       }
@@ -506,26 +508,7 @@ export class SceneGenerator {
         const userForm = await this.getUserFormDataFromDatabase(userId);
         if (userForm) {
           if (!ctx.session.userForm) {
-            ctx.session.userForm = new UserFormModel({
-              userId: NaN,
-              username: '',
-              gender: 'male',
-              lookingFor: 'both',
-              age: NaN,
-              about: '',
-              actualLocation: {
-                longitude: NaN,
-                latitude: NaN,
-              },
-              location: '',
-              mediaIds: [],
-              likesSentCount: 0,
-              isActive: true,
-              isPremium: false,
-              premiumEndTime: undefined,
-              showPremiumLabel: true,
-              lastActive: new Date().toLocaleString(),
-            });
+            ctx.session.userForm = new UserFormModel({});
           }
           Object.assign(ctx.session.userForm, userForm);
           await this.registerUserLastActivity(userForm.userId);
@@ -585,9 +568,8 @@ export class SceneGenerator {
       const regex = new RegExp(/^deleteEvent:(.*)$/);
       userFormScene.action(regex, async (ctx) => {
         const userId = +ctx.match[1];
-        await this.client.connect();
-        const db = this.client.db('cluster0');
-        await db.collection('events').deleteOne({ userId: userId });
+
+        await this.db.collection('events').deleteOne({ userId: userId });
         await ctx.deleteMessage();
       });
     });
@@ -619,9 +601,7 @@ export class SceneGenerator {
       );
     });
     userFormScene.hears('✅ Так, прибрати з пошуку', async (ctx) => {
-      await this.client.connect();
-      const db = this.client.db('cluster0');
-      await db
+      await this.db
         .collection('users')
         .updateOne({ userId: ctx.from.id }, { $set: { isActive: false } });
       await ctx.reply(
@@ -862,15 +842,18 @@ export class SceneGenerator {
     const eventList = new Scenes.BaseScene<MySceneContext>('eventList');
     let currentEventIndex = 0;
     //let currentUserIndex = 0;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let events: any;
+    let events: Event[];
     eventList.enter(async (ctx) => {
       const userForm = await this.getUserFormDataFromDatabase(ctx.from!.id);
       if (userForm) {
-        events = await this.getEventsFromDatabase(
+        if (!ctx.session.userForm) {
+          ctx.session.userForm = new UserFormModel({});
+        }
+        Object.assign(ctx.session.userForm, userForm);
+        events = (await this.getEventsFromDatabase(
           userForm.userId,
           userForm.gender
-        );
+        )) as unknown as Event[];
         await ctx.reply(`🍾 Розпочинаємо пошук подій...
 
 Сподіваємось, ви чудово проведете час.
@@ -910,11 +893,19 @@ export class SceneGenerator {
         const event = await this.getEventFromDatabase(eventUserId);
         if (event) {
           await ctx.editMessageReplyMarkup(undefined);
-          const caption =
+          let caption =
             `*Ім'я:* ${eventUser.username}
 *Вік:* ${eventUser.age}
 *Місто:* ${eventUser.location}` +
             (eventUser.about ? `\n\n*Про себе:* ${eventUser.about}` : '');
+          if (ctx.session.userForm.isPremium) {
+            caption =
+              caption +
+              (!eventUser.isPremium ||
+              (eventUser.isPremium && eventUser.showLikesCount)
+                ? `\n\n*❤️ — ${eventUser.likesCount ?? 0}*`
+                : '');
+          }
           await ctx.reply('Ініціатор запрошення на подію 👇🏻');
           await ctx.replyWithPhoto(eventUser.photoId, {
             caption,
@@ -1002,8 +993,8 @@ export class SceneGenerator {
       //         : ctx.session.userForm.lookingFor,
       //     lookingFor: { $in: [ctx.session.userForm.gender, 'both'] },
       //   };
-      //   await this.client.connect();
-      //   const db = this.client.db('cluster0');
+      //
+      //
       //   const userMatchForms = await db
       //     .collection('users')
       //     .find(query)
@@ -1072,8 +1063,6 @@ export class SceneGenerator {
       // });
       // } catch (error) {
       //   console.error('Error getting userForm data from db', error);
-      // } finally {
-      //   await this.client.close();
       // }
     });
     this.addCommands(eventList);
@@ -1083,12 +1072,16 @@ export class SceneGenerator {
     return eventList;
   }
   private reportedUserId: number | undefined = undefined;
+  private isProfilesEnded = false;
+  private isProfilesWithLocationEnded = false;
   lookForMatchScene(): Scenes.BaseScene<MySceneContext> {
     const lookForMatch = new Scenes.BaseScene<MySceneContext>('lookForMatch');
     let currentUserIndex = 0;
     let job: cron.ScheduledTask;
     let userMatchForms: UserForm[];
     lookForMatch.enter(async (ctx) => {
+      this.isProfilesEnded = false;
+      this.isProfilesWithLocationEnded = false;
       const userFormData = await this.getUserFormDataFromDatabase(ctx.from!.id);
       if (userFormData && userFormData.banExpirationDate) {
         await ctx.reply('Ти в бані');
@@ -1097,26 +1090,7 @@ export class SceneGenerator {
       currentUserIndex = 0;
       if (userFormData) {
         if (!ctx.session.userForm) {
-          ctx.session.userForm = new UserFormModel({
-            userId: NaN,
-            username: '',
-            gender: 'male',
-            lookingFor: 'both',
-            age: NaN,
-            about: '',
-            actualLocation: {
-              longitude: NaN,
-              latitude: NaN,
-            },
-            location: '',
-            mediaIds: [],
-            likesSentCount: 0,
-            isActive: true,
-            isPremium: false,
-            premiumEndTime: undefined,
-            showPremiumLabel: true,
-            lastActive: new Date().toLocaleString(),
-          });
+          ctx.session.userForm = new UserFormModel({});
         }
         Object.assign(ctx.session.userForm, userFormData);
         await this.registerUserLastActivity(userFormData.userId);
@@ -1128,12 +1102,14 @@ export class SceneGenerator {
 👀 Пам ятайте, що люди в Інтернеті можуть бути не тими, за кого себе видають`,
           Markup.keyboard([['❤️', '👎', 'Скарга']]).resize()
         );
-        await this.client.connect();
-        const db = this.client.db('cluster0');
-        ctx.session.userForm.isActive = true;
-        await db
-          .collection('users')
-          .updateOne({ userId: ctx.from!.id }, { $set: { isActive: true } });
+        //
+        //
+        if (!ctx.session.userForm.isActive) {
+          ctx.session.userForm.isActive = true;
+          await this.db
+            .collection('users')
+            .updateOne({ userId: ctx.from!.id }, { $set: { isActive: true } });
+        }
         const viewQuery = [
           {
             $match: {
@@ -1148,7 +1124,7 @@ export class SceneGenerator {
           },
         ];
 
-        const aggregationResult = await db
+        const aggregationResult = await this.db
           .collection('viewed_profiles')
           .aggregate(viewQuery)
           .toArray();
@@ -1197,7 +1173,7 @@ export class SceneGenerator {
           },
         ];
 
-        userMatchForms = (await db
+        userMatchForms = (await this.db
           .collection('users')
           .aggregate(pipeline)
           .toArray()) as unknown as UserForm[];
@@ -1207,28 +1183,44 @@ export class SceneGenerator {
             currentUserIndex,
             ctx
           );
-        } else {
-          await ctx.reply(
-            'Користувачів за такими параметрами не знайдено\nСпробуй змінити параметри пошуку або зачекай',
-            Markup.removeKeyboard()
-          );
+        } else if (userMatchForms.length === 0) {
+          userMatchForms = await this.loadProfilesWithoutLocationSpecified(ctx);
+          if (userMatchForms.length > 0) {
+            await this.sendUserDetails(
+              userMatchForms as unknown as UserForm[],
+              currentUserIndex,
+              ctx
+            );
+          } else {
+            await ctx.reply(
+              'Користувачів за такими параметрами не знайдено\nСпробуй змінити параметри пошуку або зачекай',
+              Markup.removeKeyboard()
+            );
+          }
         }
         job = cron.schedule('*/3 * * * *', async () => {
-          //every 3 minutes
-          console.log('scheduler works!');
-          const newProfiles = (await db
-            .collection('users')
-            .aggregate(pipeline)
-            .toArray()) as unknown as UserForm[];
-          const unseenProfiles = userMatchForms.slice(currentUserIndex);
-          const updatedNewProfiles = newProfiles.filter((profile) =>
-            unseenProfiles.every(
-              (unseenProfile) => unseenProfile.userId !== profile.userId
-            )
-          );     
-          userMatchForms = userMatchForms.concat(updatedNewProfiles);
-          const user = await this.getUserFormDataFromDatabase(ctx.from!.id);
-          Object.assign(ctx.session.userForm, user);
+          try {
+            //every 3 minutes
+            console.log('scheduler lookForMatch works!');
+            const newProfiles = (await this.db
+              .collection('users')
+              .aggregate(pipeline)
+              .toArray()) as unknown as UserForm[];
+            const unseenProfiles = userMatchForms.slice(currentUserIndex);
+            const updatedNewProfiles = newProfiles.filter((profile) =>
+              unseenProfiles.every(
+                (unseenProfile) => unseenProfile.userId !== profile.userId
+              )
+            );
+            userMatchForms = userMatchForms.concat(updatedNewProfiles);
+            const user = await this.getUserFormDataFromDatabase(ctx.from!.id);
+            Object.assign(ctx.session.userForm, user);
+          } catch (error) {
+            console.error(
+              'Error while updating profilesList in lookForMatch scene: ',
+              error
+            );
+          }
         });
       } else {
         await ctx.reply(
@@ -1251,9 +1243,8 @@ export class SceneGenerator {
       }
       if (!ctx.session.userForm.isPremium) {
         ctx.session.userForm.likesSentCount++;
-        await this.client.connect();
-        const db = this.client.db('cluster0');
-        await db
+
+        await this.db
           .collection('users')
           .updateOne(
             { userId: ctx.session.userForm.userId },
@@ -1261,7 +1252,7 @@ export class SceneGenerator {
           );
       }
       currentUserIndex++;
-      await this.sendUserDetails(
+      this.isProfilesWithLocationEnded = await this.sendUserDetails(
         userMatchForms as unknown as UserForm[],
         currentUserIndex,
         ctx
@@ -1272,91 +1263,109 @@ export class SceneGenerator {
         try {
           const viewerUserId = ctx.session.userForm.userId;
           if (previousUserId) {
-            await this.client.connect();
-            const db = this.client.db('cluster0');
-            await db.collection('viewed_profiles').insertOne({
+            await this.db.collection('viewed_profiles').insertOne({
               viewerUserId: viewerUserId,
               viewedUserId: previousUserId,
-              expiryTimestamp: new Date(Date.now() + TIME_TO_VIEW_EXPIRE)
+              expiryTimestamp: new Date(Date.now() + TIME_TO_VIEW_EXPIRE),
             });
+            let username = ctx.from?.username;
+            if (username) {
+              username = '@' + username;
+            }
+            const userId = ctx.from!.id;
+            const userLink = `tg://user?id=${userId}`;
+            const mentionMessage =
+              username || `[${ctx.from?.first_name}](${userLink})`;
+            const userForm = await this.getUserFormDataFromDatabase(userId);
+            if (userForm) {
+              await this.db
+                .collection('users')
+                .updateOne(
+                  { userId: previousUserId },
+                  { $inc: { likesCount: 1 } }
+                );
+              await ctx.telegram.sendMessage(
+                previousUserId,
+                `👀Один краш поставив вподобайку твоєму профілю, щоб переглянути хто це перейди у *архів лайків* 🗄`,
+                {
+                  parse_mode: 'Markdown',
+                  reply_markup: {
+                    keyboard: [['🗄 Перейти у архів']],
+                    resize_keyboard: true,
+                  },
+                }
+              );
+              await this.db.collection('matches').insertOne({
+                senderId: userId,
+                receiverId: previousUserId,
+                senderMentionMessage: mentionMessage,
+              });
+            }
           }
-          let username = ctx.from?.username;
-          if (username) {
-            username = '@' + username;
-          }
-          const userId = ctx.from!.id;
-          const userLink = `tg://user?id=${userId}`;
-          const mentionMessage =
-            username || `[${ctx.from?.first_name}](${userLink})`;
-          const userForm = await this.getUserFormDataFromDatabase(userId);
-          if (userForm) {
-            await ctx.telegram.sendMessage(
-              previousUserId,
-              `👀Один краш поставив вподобайку твоєму профілю, щоб переглянути хто це перейди у *архів лайків* 🗄`,
-              {
-                parse_mode: 'Markdown',
-                reply_markup: {
-                  keyboard: [['🗄 Перейти у архів']],
-                  resize_keyboard: true,
-                },
-              }
-            );
-            await this.client.connect();
-            const db = this.client.db('cluster0');
-            await db.collection('matches').insertOne({
-              senderId: userId,
-              receiverId: previousUserId,
-              senderMentionMessage: mentionMessage,
-            });
-            // await ctx.telegram.sendPhoto(previousUserId, userForm.photoId, {
-            //   caption: message,
-            //   parse_mode: 'Markdown',
-            //   reply_markup: {
-            //     inline_keyboard: [
-            //       [
-            //         {
-            //           text: '❤️',
-            //           callback_data: `like:${userId}:${mentionMessage}`,
-            //         },
-            //         {
-            //           text: '👎',
-            //           callback_data: `dislike`,
-            //         },
-            //       ],
-            //     ],
-            //   },
-            // });
-            // await ctx.reply(
-            //   `Супер! Очікуй на повідомлення від ініціатора події 🥳 Бажаю приємно провести час 👋`
-            // , Markup.removeKeyboard());
-          }
-          // await ctx.telegram.sendMessage(
-          //   previousUserId,
-          //   `${ctx.session.userForm.username} запрошує тебе на подію ${eventName} ${eventDate}. Обговори деталі...`,
-          //   {
-          //     parse_mode: 'Markdown',
-          //     reply_markup: {
-          //       inline_keyboard: [
-          //         [
-          //           {
-          //             text: '❤️',
-          //             callback_data: `like:${userId}:${mentionMessage}`,
-          //           },
-          //           {
-          //             text: '👎',
-          //             callback_data: `dislike:${userId}:${
-          //               ctx.from!.username
-          //             }`,
-          //           },
-          //         ],
-          //       ],
-          //     },
-          //   }
-          // );
         } catch (error) {
           console.error('Error sending notification:', error);
         }
+        if (this.isProfilesWithLocationEnded && !this.isProfilesEnded) {
+          userMatchForms = await this.loadProfilesWithoutLocationSpecified(ctx);
+          currentUserIndex = 0;
+          this.isProfilesEnded = await this.sendUserDetails(
+            userMatchForms as unknown as UserForm[],
+            currentUserIndex,
+            ctx
+          );
+        }
+        if (this.isProfilesEnded) {
+          await ctx.reply(
+            'Більше немає людей, які підходять під твої запити',
+            Markup.removeKeyboard()
+          );
+        }
       }
+      // await ctx.telegram.sendPhoto(previousUserId, userForm.photoId, {
+      //   caption: message,
+      //   parse_mode: 'Markdown',
+      //   reply_markup: {
+      //     inline_keyboard: [
+      //       [
+      //         {
+      //           text: '❤️',
+      //           callback_data: `like:${userId}:${mentionMessage}`,
+      //         },
+      //         {
+      //           text: '👎',
+      //           callback_data: `dislike`,
+      //         },
+      //       ],
+      //     ],
+      //   },
+      // });
+      // await ctx.reply(
+      //   `Супер! Очікуй на повідомлення від ініціатора події 🥳 Бажаю приємно провести час 👋`
+      // , Markup.removeKeyboard());
+
+      // await ctx.telegram.sendMessage(
+      //   previousUserId,
+      //   `${ctx.session.userForm.username} запрошує тебе на подію ${eventName} ${eventDate}. Обговори деталі...`,
+      //   {
+      //     parse_mode: 'Markdown',
+      //     reply_markup: {
+      //       inline_keyboard: [
+      //         [
+      //           {
+      //             text: '❤️',
+      //             callback_data: `like:${userId}:${mentionMessage}`,
+      //           },
+      //           {
+      //             text: '👎',
+      //             callback_data: `dislike:${userId}:${
+      //               ctx.from!.username
+      //             }`,
+      //           },
+      //         ],
+      //       ],
+      //     },
+      //   }
+      // );
 
       //         const regex = /^(like|dislike):(.+)$/;
       //         userEvents.action(regex, async (ctx) => {
@@ -1384,7 +1393,7 @@ export class SceneGenerator {
     lookForMatch.hears('👎', async (ctx) => {
       await this.registerUserLastActivity(ctx.from.id);
       currentUserIndex++;
-      await this.sendUserDetails(
+      this.isProfilesWithLocationEnded = await this.sendUserDetails(
         userMatchForms as unknown as UserForm[],
         currentUserIndex,
         ctx
@@ -1394,14 +1403,33 @@ export class SceneGenerator {
         const previousUserId = previousUser.userId;
         const viewerUserId = ctx.session.userForm.userId;
         if (previousUserId) {
-          await this.client.connect();
-          const db = this.client.db('cluster0');
-          await db.collection('viewed_profiles').insertOne({
+          await this.db.collection('viewed_profiles').insertOne({
             viewerUserId: viewerUserId,
             viewedUserId: previousUserId,
-            expiryTimestamp: new Date(Date.now() + TIME_TO_VIEW_EXPIRE), 
+            expiryTimestamp: new Date(Date.now() + TIME_TO_VIEW_EXPIRE),
           });
+          await this.db
+            .collection('users')
+            .updateOne(
+              { userId: previousUserId },
+              { $inc: { dislikesCount: 1 } }
+            );
         }
+      }
+      if (this.isProfilesWithLocationEnded && !this.isProfilesEnded) {
+        userMatchForms = await this.loadProfilesWithoutLocationSpecified(ctx);
+        currentUserIndex = 0;
+        this.isProfilesEnded = await this.sendUserDetails(
+          userMatchForms as unknown as UserForm[],
+          currentUserIndex,
+          ctx
+        );
+      }
+      if (this.isProfilesEnded) {
+        await ctx.reply(
+          'Більше немає людей, які підходять під твої запити',
+          Markup.removeKeyboard()
+        );
       }
     });
     lookForMatch.hears('Скарга', async (ctx) => {
@@ -1432,9 +1460,8 @@ export class SceneGenerator {
         await ctx.reply(
           'Такого користувача не знайдено, зверніться у підтримку'
         );
-        await this.client.connect();
-        const db = this.client.db('cluster0');
-        await db.collection('viewed_profiles').insertOne({
+
+        await this.db.collection('viewed_profiles').insertOne({
           viewerUserId: ctx.from!.id,
           viewedUserId: this.reportedUserId,
           expiryTimestamp: new Date(Date.now() + TIME_TO_VIEW_EXPIRE),
@@ -1454,9 +1481,7 @@ export class SceneGenerator {
       ctx: MySceneContext,
       complaintDescription: string
     ) => {
-      await this.client.connect();
-      const db = this.client.db('cluster0');
-      const existingComplaint = await db
+      const existingComplaint = await this.db
         .collection('complaints')
         .findOne({ userId: this.reportedUserId });
 
@@ -1466,13 +1491,13 @@ export class SceneGenerator {
       };
 
       if (!existingComplaint) {
-        await db.collection('complaints').insertOne({
+        await this.db.collection('complaints').insertOne({
           userId: this.reportedUserId,
           complaintsNum: 1,
           descriptions: [complaintDescription],
         });
       } else {
-        await db
+        await this.db
           .collection('complaints')
           .updateOne({ userId: this.reportedUserId }, updateData);
       }
@@ -1481,7 +1506,7 @@ export class SceneGenerator {
         'Ви відправили скаргу на профіль. Дякуємо за Ваше повідомлення, ми розберемось з порушником 👮‍♂️',
         Markup.removeKeyboard()
       );
-      await db.collection('viewed_profiles').insertOne({
+      await this.db.collection('viewed_profiles').insertOne({
         viewerUserId: ctx.from!.id,
         viewedUserId: this.reportedUserId,
         expiryTimestamp: new Date(Date.now() + TIME_TO_VIEW_EXPIRE),
@@ -1510,35 +1535,15 @@ export class SceneGenerator {
     let currentIndex = 0;
     likeArchive.enter(async (ctx) => {
       currentIndex = 0;
-      await this.client.connect();
-      const db = this.client.db('cluster0');
-      const userForm = (await db
+      this.client.connect();
+      const userForm = (await this.db
         .collection('users')
         .findOne({ userId: ctx.from!.id })) as unknown as UserForm;
       if (!ctx.session.userForm) {
-        ctx.session.userForm = new UserFormModel({
-          userId: NaN,
-          username: '',
-          gender: 'male',
-          lookingFor: 'both',
-          age: NaN,
-          about: '',
-          actualLocation: {
-            longitude: NaN,
-            latitude: NaN,
-          },
-          location: '',
-          mediaIds: [],
-          likesSentCount: 0,
-          isActive: true,
-          isPremium: false,
-          premiumEndTime: undefined,
-          showPremiumLabel: true,
-          lastActive: new Date().toLocaleString(),
-        });
+        ctx.session.userForm = new UserFormModel({});
       }
       Object.assign(ctx.session.userForm, userForm);
-      matches = await db
+      matches = await this.db
         .collection('matches')
         .find({ receiverId: ctx.from!.id })
         .toArray();
@@ -1550,15 +1555,22 @@ export class SceneGenerator {
             resize_keyboard: true,
           },
         });
-        const user = await db
+        const user = await this.db
           .collection('users')
           .findOne({ userId: matches[currentIndex].senderId });
         if (user) {
-          const caption =
+          let caption =
             `*Ім'я:* ${user.username}
 *Вік:* ${user.age}
 *Місто:* ${user.location}` +
             (user.about ? `\n\n*Про себе:* ${user.about}` : '');
+          if (ctx.session.userForm.isPremium) {
+            caption =
+              caption +
+              (!user.isPremium || (user.isPremium && user.showLikesCount)
+                ? `\n\n*❤️ — ${user.likesCount ?? 0}*`
+                : '');
+          }
           const mediaGroup: MediaGroup = user.mediaIds.map(
             (mediaObj: { type: string; id: string }, index: number) => ({
               type: mediaObj.type as 'document',
@@ -1629,9 +1641,8 @@ export class SceneGenerator {
           parse_mode: 'Markdown',
         }
       );
-      await this.client.connect();
-      const db = this.client.db('cluster0');
-      await db.collection('matches').deleteMany({
+
+      await this.db.collection('matches').deleteMany({
         $or: [
           {
             senderId: ctx.session.userForm.userId,
@@ -1644,15 +1655,22 @@ export class SceneGenerator {
         ],
       });
       if (matches.length > currentIndex) {
-        const user = await db
+        const user = await this.db
           .collection('users')
           .findOne({ userId: matches[currentIndex].senderId });
         if (user) {
-          const caption =
+          let caption =
             `*Ім'я:* ${user.username}
   *Вік:* ${user.age}
   *Місто:* ${user.location}` +
             (user.about ? `\n\n*Про себе:* ${user.about}` : '');
+          if (ctx.session.userForm.isPremium) {
+            caption =
+              caption +
+              (!user.isPremium || (user.isPremium && user.showLikesCount)
+                ? `\n\n*❤️ — ${user.likesCount ?? 0}*`
+                : '');
+          }
           const mediaGroup: MediaGroup = user.mediaIds.map(
             (mediaObj: { type: string; id: string }, index: number) => ({
               type: mediaObj.type as 'document',
@@ -1674,17 +1692,22 @@ export class SceneGenerator {
       }
     });
     likeArchive.hears('👎', async (ctx) => {
-      await this.client.connect();
-      const db = this.client.db('cluster0');
-      const user = await db
+      const user = await this.db
         .collection('users')
         .findOne({ userId: matches[currentIndex].senderId });
       if (user) {
-        const caption =
+        let caption =
           `*Ім'я:* ${user.username}
 *Вік:* ${user.age}
 *Місто:* ${user.location}` +
           (user.about ? `\n\n*Про себе:* ${user.about}` : '');
+        if (ctx.session.userForm.isPremium) {
+          caption =
+            caption +
+            (!user.isPremium || (user.isPremium && user.showLikesCount)
+              ? `\n\n*❤️ — ${user.likesCount ?? 0}*`
+              : '');
+        }
         const mediaGroup: MediaGroup = user.mediaIds.map(
           (mediaObj: { type: string; id: string }, index: number) => ({
             type: mediaObj.type as 'document',
@@ -1721,6 +1744,9 @@ export class SceneGenerator {
         'Якщо маєш промокод введи його тут 👇🏻',
         Markup.removeKeyboard()
       );
+      if (!this.isConnectionOpened) {
+        await this.client.connect();
+      }
     });
     this.addCommands(promocode);
     promocode.hears('👤 Створити профіль', async (ctx) => {
@@ -1728,59 +1754,16 @@ export class SceneGenerator {
     });
     promocode.on('text', async (ctx) => {
       const userCode = ctx.message.text;
-      await this.client.connect();
-      const db = this.client.db('cluster0');
-      const promoCode = await db
+      const promoCode = await this.db
         .collection('promocodes')
         .findOne({ promocode: userCode });
       if (promoCode) {
-        const user = await db
+        const user = await this.db
           .collection('users')
           .findOne({ userId: ctx.from.id });
         if (user) {
           if (!ctx.session.userForm) {
-            ctx.session.userForm = new UserFormModel({
-              userId: NaN,
-              username: '',
-              gender: 'male',
-              lookingFor: 'both',
-              age: NaN,
-              about: '',
-              actualLocation: {
-                longitude: NaN,
-                latitude: NaN,
-              },
-              location: '',
-              mediaIds: [],
-              likesSentCount: 0,
-              isActive: true,
-              isPremium: false,
-              premiumEndTime: undefined,
-              showPremiumLabel: true,
-              lastActive: new Date().toLocaleString(),
-            });
-          }
-          if (!ctx.session.userForm) {
-            ctx.session.userForm = new UserFormModel({
-              userId: NaN,
-              username: '',
-              gender: 'male',
-              lookingFor: 'both',
-              age: NaN,
-              about: '',
-              actualLocation: {
-                longitude: NaN,
-                latitude: NaN,
-              },
-              location: '',
-              mediaIds: [],
-              likesSentCount: 0,
-              isActive: true,
-              isPremium: false,
-              premiumEndTime: undefined,
-              showPremiumLabel: true,
-              lastActive: new Date().toLocaleString(),
-            });
+            ctx.session.userForm = new UserFormModel({});
           }
           Object.assign(ctx.session.userForm, user);
           if (!promoCode.usedBy.includes(user.userId)) {
@@ -1794,22 +1777,21 @@ export class SceneGenerator {
                   let subscriptionDurationMs = 0;
                   switch (promoCode.premiumPeriod) {
                     case '1 місяць':
-                      subscriptionDurationMs = SUBSCRIPTION_DURAION_1MONTH; 
+                      subscriptionDurationMs = SUBSCRIPTION_DURAION_1MONTH;
                       break;
                     case '6 місяців':
-                      subscriptionDurationMs = SUBSCRIPTION_DURAION_6MONTHS; 
+                      subscriptionDurationMs = SUBSCRIPTION_DURAION_6MONTHS;
                       break;
                     case '1 рік':
-                      subscriptionDurationMs = SUBSCRIPTION_DURAION_1YEAR; 
+                      subscriptionDurationMs = SUBSCRIPTION_DURAION_1YEAR;
                       break;
                   }
                   const premiumEndTime = new Date();
                   premiumEndTime.setTime(
                     premiumEndTime.getTime() + subscriptionDurationMs
                   );
-                  await this.client.connect();
-                  const db = this.client.db('cluster0');
-                  await db.collection('users').updateOne(
+
+                  await this.db.collection('users').updateOne(
                     { userId: user.userId },
                     {
                       $set: {
@@ -1822,7 +1804,7 @@ export class SceneGenerator {
                   await ctx.reply(
                     `В тебе тепер є преміум на ${promoCode.premiumPeriod} 🥳`
                   );
-                  await db.collection('promocodes').updateOne(
+                  await this.db.collection('promocodes').updateOne(
                     { promocode: userCode },
                     {
                       $push: { usedBy: user.userId },
@@ -1847,6 +1829,10 @@ export class SceneGenerator {
               .resize()
           );
         }
+      } else {
+        await ctx.reply(
+          'Такого прокмокода не існує, перевір написання і спробуй ще раз'
+        );
       }
     });
     promocode.on('message', async (ctx) => {
@@ -1864,15 +1850,18 @@ export class SceneGenerator {
     );
     premiumSettings.enter(async (ctx) => {
       if (ctx.session.userForm.isPremium) {
-        const buttonText = ctx.session.userForm.showPremiumLabel
-          ? '⭐️ — Сховати надпис'
-          : '⭐️ — Показати надпис';
+        const labelText = ctx.session.userForm.showPremiumLabel
+          ? '⭐️ — Сховати'
+          : '⭐️ — Показати';
+        const likesText = ctx.session.userForm.showLikesCount
+          ? '❤️ — Сховати'
+          : '❤️ — Показати';
         await ctx.reply(
-          `${buttonText} ⭐️ *Premium Crush* в профілі\n❤️ — Сховати статистику під профілем (ще не створено)\n<Вставити смайл> — Переглянути свою статистику (ще не створено)`,
+          `${labelText} надпис ⭐️ *Premium Crush* в профілі\n${likesText} статистику під профілем\n<Вставити смайл> — Переглянути свою статистику (ще не створено)`,
           {
             parse_mode: 'Markdown',
             reply_markup: {
-              keyboard: [['⭐️']],
+              keyboard: [['⭐️', '❤️']],
               resize_keyboard: true,
             },
           }
@@ -1883,30 +1872,45 @@ export class SceneGenerator {
       const message = ctx.session.userForm.showPremiumLabel
         ? '✅ Надпис прибрано'
         : '✅ Надпис додано';
-      this.client.connect();
-      const db = this.client.db('cluster0');
       const updateField = ctx.session.userForm.showPremiumLabel
         ? { showPremiumLabel: false }
         : { showPremiumLabel: true };
-      await db
+      await this.db
         .collection('users')
         .updateOne({ userId: ctx.from.id }, { $set: updateField });
       ctx.session.userForm.showPremiumLabel =
         !ctx.session.userForm.showPremiumLabel;
       await ctx.reply(message, Markup.removeKeyboard());
     });
+    premiumSettings.hears('❤️', async (ctx) => {
+      const message = ctx.session.userForm.showLikesCount
+        ? '✅ Кількість лайків прибрано'
+        : '✅ Кількість лайків додано';
+      const updateField = ctx.session.userForm.showLikesCount
+        ? { showLikesCount: false }
+        : { showLikesCount: true };
+      await this.db
+        .collection('users')
+        .updateOne({ userId: ctx.from.id }, { $set: updateField });
+      ctx.session.userForm.showLikesCount =
+        !ctx.session.userForm.showLikesCount;
+      await ctx.reply(message, Markup.removeKeyboard());
+    });
     this.addCommands(premiumSettings);
     premiumSettings.on('message', async (ctx) => {
       if (ctx.session.userForm.isPremium) {
-        const buttonText = ctx.session.userForm.showPremiumLabel
-          ? '⭐️ — Сховати надпис'
-          : '⭐️ — Показати надпис';
+        const labelText = ctx.session.userForm.showPremiumLabel
+          ? '⭐️ — Сховати'
+          : '⭐️ — Показати';
+        const likesText = ctx.session.userForm.showLikesCount
+          ? '❤️ — Сховати'
+          : '❤️ — Показати';
         await ctx.reply(
-          `${buttonText} ⭐️ *Premium Crush* в профілі\n❤️ — Сховати статистику під профілем (ще не створено)\n<Вставити смайл> — Переглянути свою статистику (ще не створено)`,
+          `${labelText} надпис ⭐️ *Premium Crush* в профілі\n${likesText} статистику під профілем\n<Вставити смайл> — Переглянути свою статистику (ще не створено)`,
           {
             parse_mode: 'Markdown',
             reply_markup: {
-              keyboard: [['⭐️']],
+              keyboard: [['⭐️', '❤️']],
               resize_keyboard: true,
             },
           }
@@ -1924,11 +1928,10 @@ export class SceneGenerator {
     let complaints: any[] = [];
     moderate.enter(async (ctx) => {
       currentIndex = 0;
-      await this.client.connect();
-      const db = this.client.db('cluster0');
-      complaints = await db.collection('complaints').find().toArray();
+
+      complaints = await this.db.collection('complaints').find().toArray();
       const reportedUserIds = complaints.map((complaint) => complaint.userId);
-      reportedUsers = (await db
+      reportedUsers = (await this.db
         .collection('users')
         .find({
           userId: { $in: reportedUserIds },
@@ -1970,9 +1973,7 @@ export class SceneGenerator {
       const action = ctx.match?.[0] || '';
 
       if (action === 'Забанити') {
-        await this.client.connect();
-        const db = this.client.db('cluster0');
-        const banData = await db
+        const banData = await this.db
           .collection('bans')
           .findOne({ userId: reportedUser.userId });
         const banCount = banData ? banData.banCount : 0;
@@ -1983,7 +1984,7 @@ export class SceneGenerator {
             ? SECOND_BAN_TIME
             : PERMANENT_BAN_TIME;
         const banExpirationDate = new Date(Date.now() + banDuration);
-        await db.collection('bans').updateOne(
+        await this.db.collection('bans').updateOne(
           { userId: reportedUser.userId },
           {
             $set: {
@@ -1996,9 +1997,8 @@ export class SceneGenerator {
       }
 
       currentIndex++;
-      await this.client.connect();
-      const db = this.client.db('cluster0');
-      await db
+
+      await this.db
         .collection('complaints')
         .deleteOne({ userId: reportedUser.userId });
       if (reportedUsers[currentIndex]) {
@@ -2075,26 +2075,7 @@ export class SceneGenerator {
       const userId = ctx.from!.id;
       const user = await this.getUserFormDataFromDatabase(userId);
       if (!ctx.session.userForm) {
-        ctx.session.userForm = new UserFormModel({
-          userId: NaN,
-          username: '',
-          gender: 'male',
-          lookingFor: 'both',
-          age: NaN,
-          about: '',
-          actualLocation: {
-            longitude: NaN,
-            latitude: NaN,
-          },
-          location: '',
-          mediaIds: [],
-          likesSentCount: 0,
-          isActive: true,
-          isPremium: false,
-          premiumEndTime: undefined,
-          showPremiumLabel: true,
-          lastActive: new Date().toLocaleString(),
-        });
+        ctx.session.userForm = new UserFormModel({});
       }
       Object.assign(ctx.session.userForm, user);
       if (user && user.isPremium) {
@@ -2257,9 +2238,7 @@ export class SceneGenerator {
     complaintsNum: number,
     descriptions: string[]
   ) {
-    await this.client.connect();
-    const db = this.client.db('cluster0');
-    const banData = await db
+    const banData = await this.db
       .collection('bans')
       .findOne({ userId: reportedUser.userId });
     const complaintsList = descriptions
@@ -2330,9 +2309,8 @@ ${complaintsList}`;
       const subscriptionDurationMs = SUBSCRIPTION_DURATION_TEST;
       const premiumEndTime = new Date();
       premiumEndTime.setTime(premiumEndTime.getTime() + subscriptionDurationMs);
-      await this.client.connect();
-      const db = this.client.db('cluster0');
-      await db.collection('users').updateOne(
+
+      await this.db.collection('users').updateOne(
         { userId: +this.configService.get('TG_MODERATOR_ID') },
         {
           $set: {
@@ -2351,14 +2329,13 @@ ${complaintsList}`;
 
   async saveUserFormToDatabase(userForm: UserForm) {
     try {
-      await this.client.connect();
       const userFormData = new UserFormModel<UserForm>(userForm);
-      const db = this.client.db('cluster0');
-      const user = await db
+
+      const user = await this.db
         .collection('users')
         .findOne({ userId: userForm.userId });
       if (user) {
-        await db.collection('users').updateOne(
+        await this.db.collection('users').updateOne(
           { userId: userForm.userId },
           {
             $set: {
@@ -2378,46 +2355,51 @@ ${complaintsList}`;
               premiumEndTime: userForm.premiumEndTime,
               showPremiumLabel: userForm.showPremiumLabel,
               lastActive: userForm.lastActive,
+              likesCount: userForm.likesCount,
+              dislikesCount: userForm.dislikesCount,
+              registrationDate: userForm.registrationDate,
             },
           }
         );
       } else {
-        await db.collection('users').insertOne(userFormData);
+        const currentDate = new Date();
+        const year = currentDate.getFullYear();
+        const month = (currentDate.getMonth() + 1).toString().padStart(2, '0');
+        const day = currentDate.getDate().toString().padStart(2, '0');
+        const formattedDate = `${day}.${month}.${year}`;
+        userFormData.registrationDate = formattedDate;
+        userFormData.showPremiumLabel = true;
+        userFormData.showLikesCount = true;
+        await this.db.collection('users').insertOne(userFormData);
       }
     } catch (error) {
       console.error('Error saving UserForm data:', error);
-    } finally {
-      await this.client.close();
     }
+
   }
   async saveEventToDatabase(event: Event) {
     try {
-      await this.client.connect();
       const eventData = new EventModel<Event>(event);
-      const db = this.client.db('cluster0');
-      await db.collection('events').insertOne(eventData);
+
+      await this.db.collection('events').insertOne(eventData);
     } catch (error) {
       console.error('Error saving eventData data:', error);
-    } finally {
-      await this.client.close();
     }
   }
   async getUserFormDataFromDatabase(userId: number) {
     try {
-      await this.client.connect();
-      const db = this.client.db('cluster0');
-      const userForm = await db.collection('users').findOne({ userId });
+      if (!this.isConnectionOpened) {
+        await this.client.connect();
+        console.log('connection opened')
+      }
+      const userForm = await this.db.collection('users').findOne({ userId });
       return userForm;
     } catch (error) {
       console.error('Error getting userForm data from db', error);
-    } finally {
-      await this.client.close();
     }
   }
   async registerUserLastActivity(userId: number) {
-    await this.client.connect();
-    const db = this.client.db('cluster0');
-    await db.collection('users').updateOne(
+    await this.db.collection('users').updateOne(
       { userId },
       {
         $set: {
@@ -2428,9 +2410,7 @@ ${complaintsList}`;
   }
   async getEventsFromDatabase(userId: number, userGender: string) {
     try {
-      await this.client.connect();
-      const db = this.client.db('cluster0');
-      const events = await db
+      const events = await this.db
         .collection('events')
         .find({
           userId: { $ne: userId },
@@ -2443,11 +2423,76 @@ ${complaintsList}`;
     }
   }
 
+  async loadProfilesWithoutLocationSpecified(ctx: MySceneContext) {
+    const viewQuery = [
+      {
+        $match: {
+          viewerUserId: ctx.session.userForm.userId,
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          viewedUserIds: { $addToSet: '$viewedUserId' },
+        },
+      },
+    ];
+    const aggregationResult = await this.db
+      .collection('viewed_profiles')
+      .aggregate(viewQuery)
+      .toArray();
+    let distinctViewedUserIds = [];
+    if (aggregationResult.length > 0) {
+      distinctViewedUserIds = aggregationResult[0].viewedUserIds;
+    }
+    const noLocationPipeline = [
+      {
+        $match: {
+          $and: [
+            {
+              userId: { $ne: ctx.session.userForm.userId },
+              gender:
+                ctx.session.userForm.lookingFor === 'both'
+                  ? { $in: ['male', 'female'] }
+                  : ctx.session.userForm.lookingFor,
+              lookingFor: { $in: [ctx.session.userForm.gender, 'both'] },
+              isActive: true,
+            },
+            {
+              userId: { $nin: distinctViewedUserIds },
+            },
+          ],
+        },
+      },
+      {
+        $addFields: {
+          randomWeight: { $rand: {} },
+        },
+      },
+      {
+        $addFields: {
+          isPremiumWeight: {
+            $cond: {
+              if: { $eq: ['$isPremium', true] },
+              then: { $add: ['$randomWeight', 0.5] },
+              else: '$randomWeight',
+            },
+          },
+        },
+      },
+      {
+        $sort: { isPremiumWeight: -1 },
+      },
+    ];
+    return (await this.db
+      .collection('users')
+      .aggregate(noLocationPipeline)
+      .toArray()) as unknown as UserForm[];
+  }
+
   async getUserEventsFromDatabase(userId: number) {
     try {
-      await this.client.connect();
-      const db = this.client.db('cluster0');
-      const events = await db
+      const events = await this.db
         .collection('events')
         .find({
           userId: userId,
@@ -2460,9 +2505,7 @@ ${complaintsList}`;
   }
   async getEventFromDatabase(userId: number) {
     try {
-      await this.client.connect();
-      const db = this.client.db('cluster0');
-      const event = await db.collection('events').findOne({
+      const event = await this.db.collection('events').findOne({
         userId: userId,
       });
       return event;
@@ -2499,12 +2542,21 @@ ${complaintsList}`;
   ) {
     const user = userArrayFromDB[currentIndex];
     if (user) {
-      const caption =
-        (user.isPremium ? `⭐️ *Premium Crush*\n\n` : '') +
+      let caption =
+        (user.isPremium && user.showPremiumLabel
+          ? `⭐️ *Premium Crush*\n\n`
+          : '') +
         `*Ім'я:* ${user.username}
 *Вік:* ${user.age}
 *Місто:* ${user.location}` +
         (user.about ? `\n\n*Про себе:* ${user.about}` : '');
+      if (ctx.session.userForm.isPremium) {
+        caption =
+          caption +
+          (!user.isPremium || (user.isPremium && user.showLikesCount)
+            ? `\n\n*❤️ — ${user.likesCount ?? 0}*`
+            : '');
+      }
       const mediaGroup: MediaGroup = user.mediaIds.map(
         (mediaObj: { type: string; id: string }, index: number) => ({
           type: mediaObj.type as 'document',
@@ -2514,26 +2566,26 @@ ${complaintsList}`;
         })
       );
       await ctx.telegram.sendMediaGroup(ctx.from!.id, mediaGroup);
-      return user;
+      return false;
     } else {
-      await ctx.reply(
-        'Більше немає людей, які підходять під твої запити',
-        Markup.removeKeyboard()
-      );
+      return true;
     }
   }
 
   showUserProfile(ctx: MySceneContext): MediaGroup {
     const userForm = ctx.session.userForm;
     const caption =
-      (userForm.isPremium && -userForm.showPremiumLabel
+      (userForm.isPremium && userForm.showPremiumLabel
         ? `⭐️ *Premium Crush*\n\n`
         : '') +
       `Так виглядає твій профіль:
 *Ім'я:* ${userForm.username}
 *Вік:* ${userForm.age}
 *Місто:* ${userForm.location}` +
-      (userForm.about ? `\n\n*Про себе:* ${userForm.about}` : '');
+      (userForm.about ? `\n\n*Про себе:* ${userForm.about}` : '') +
+      (userForm.isPremium && userForm.showLikesCount
+        ? `\n\n*❤️ — ${userForm.likesCount ?? 0}*`
+        : '');
     const mediaGroup: MediaGroup = ctx.session.userForm.mediaIds.map(
       (mediaObj: { type: string; id: string }, index: number) => ({
         type: mediaObj.type as 'document',

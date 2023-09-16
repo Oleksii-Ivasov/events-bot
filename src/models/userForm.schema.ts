@@ -73,8 +73,24 @@ const userFormSchema = new mongoose.Schema({
     type: Boolean,
     required: true,
   },
+  showLikesCount: {
+    type: Boolean,
+    required: true,
+  },
   lastActive: {
     type: String,
+    required: true
+  },
+  registrationDate: {
+    type: String,
+    required: true
+  },
+  likesCount: {
+    type: Number,
+    required: true
+  },
+  dislikesCount: {
+    type: Number,
     required: true
   }
 });
