@@ -4,6 +4,11 @@ export interface Event  {
     eventName: string,
     date: string,
     about: string | undefined,
-    lookingFor: string
+    lookingFor: string,
+    location?: string,
+    mediaIds?: {
+        type: string;
+        id: string;
+      }[];
     //ageRange: string
 }

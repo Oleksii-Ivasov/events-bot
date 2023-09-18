@@ -76,7 +76,10 @@ class Bot {
       this.sceneGenerator.showPremiumBenefitsScene(),
       this.sceneGenerator.choosePremiumPeriodScene(),
       this.sceneGenerator.promocodeScene(),
-      this.sceneGenerator.premiumSettingsScene()
+      this.sceneGenerator.premiumSettingsScene(),
+      this.sceneGenerator.botEventListScene(),
+      this.sceneGenerator.botEventLookingForScene(),
+      this.sceneGenerator.eventChooseScene()
     ],
     {
       ttl: 2592000,
@@ -279,10 +282,10 @@ class Bot {
       await ctx.scene.enter('lookForMatch');
     });
     this.bot.hears('🍾 Події', async (ctx) => {
-      await ctx.scene.enter('eventList');
+      await ctx.scene.enter('eventChoose');
     });
     this.bot.command('events', async (ctx) => {
-      await ctx.scene.enter('eventList');
+      await ctx.scene.enter('eventChoose');
     });
     this.bot.command('people', async (ctx) => {
       await ctx.scene.enter('lookForMatch');

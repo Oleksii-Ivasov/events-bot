@@ -9,7 +9,21 @@ const eventSchema = new mongoose.Schema({
     type: String,
     default: undefined,
   },
-  lookingFor: String
+  lookingFor: String,
+  location: String,
+  mediaIds: [
+    {
+      type: {
+        type: String,
+        required: true,
+      },
+      id: {
+        type: String,
+        required: true,
+      },
+      _id: false,
+    },
+  ],
   //ageRange: String
 });
 export const EventModel = mongoose.model('Event', eventSchema);

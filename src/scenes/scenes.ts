@@ -13,8 +13,8 @@ import crypto from 'crypto';
 import cron from 'node-cron';
 import { MediaGroup } from 'telegraf/typings/telegram-types';
 
-const MAX_LIKES_LIMIT = 2;
-const TIME_TO_VIEW_EXPIRE = 60 * 60 * 1000; // 1 hour
+const MAX_LIKES_LIMIT = 10;
+const TIME_TO_VIEW_EXPIRE = 60 * 1000; // 1 minute
 const INACTIVE_USER_TIME = 60 * 60 * 2 * 1000; // 2 hour
 const SUBSCRIPTION_DURAION_1MONTH = 60 * 60 * 1000; // 1 hour
 const SUBSCRIPTION_DURAION_6MONTHS = 60 * 60 * 2 * 1000; // 2 hour
@@ -147,7 +147,7 @@ export class SceneGenerator {
       await ctx.scene.enter('gender');
     });
     greeting.hears('🍾 Події', async (ctx) => {
-      await ctx.scene.enter('eventList');
+      await ctx.scene.enter('eventChoose');
     });
     this.addCommands(greeting);
     greeting.on('message', async (ctx) => {
@@ -489,7 +489,7 @@ export class SceneGenerator {
       await ctx.scene.enter('lookForMatch');
     });
     photo.hears('🍾 Події', async (ctx) => {
-      await ctx.scene.enter('eventList');
+      await ctx.scene.enter('eventChoose');
     });
     photo.on('message', async (ctx) => {
       await ctx.reply(
@@ -837,6 +837,141 @@ export class SceneGenerator {
 
   //   return eventAgeRange;
   // }
+  eventChooseScene(): Scenes.BaseScene<MySceneContext> {
+    const eventChoose = new Scenes.BaseScene<MySceneContext>('eventChoose');
+    eventChoose.enter(async (ctx) => {
+      await ctx.reply(
+        `Обери тип подій, які хочеш переглянути\n\n🍾 — Події, створені користувачами\n🎫 — Події, запропоновані ботом`,
+        Markup.keyboard([['🍾', '🎫']])
+          .oneTime()
+          .resize()
+      );
+    });
+    eventChoose.hears('🍾', async (ctx) => {
+      await ctx.scene.enter('eventList');
+    });
+    eventChoose.hears('🎫', async (ctx) => {
+      await ctx.scene.enter('botEventList');
+    });
+    eventChoose.on('message', async (ctx) => {
+      await ctx.reply(
+        `Обери тип подій, які хочеш переглянути\n\n🍾 — Події, створені користувачами\n🎫 — Події, запропоновані ботом`,
+        Markup.keyboard([['🍾', '🎫']])
+          .oneTime()
+          .resize()
+      );
+    });
+    this.addCommands(eventChoose);
+    return eventChoose;
+  }
+
+  botEventListScene(): Scenes.BaseScene<MySceneContext> {
+    const botEventList = new Scenes.BaseScene<MySceneContext>('botEventList');
+    let currentEventIndex = 0;
+    let currentEventId = 0;
+    let events: Event[];
+    botEventList.enter(async (ctx) => {
+      const user = await this.getUserFormDataFromDatabase(ctx.from!.id);
+      if (user) {
+        if (!ctx.session.userForm) {
+          ctx.session.userForm = new UserFormModel({});
+        }
+        Object.assign(ctx.session.userForm, user);
+        events = (await this.getBotEventsListFromDatabase(
+          user.actualLocation
+        )) as unknown as Event[];
+        currentEventIndex = 0;
+        currentEventId = 0;
+        if (events && events.length > 0) {
+          await ctx.reply(
+            'Ось список подій у твоєму місті 👇🏻',
+            Markup.keyboard([['❤️', '👎']]).resize()
+          );
+          await this.showBotEvent(events, currentEventIndex, ctx);
+          currentEventId = events[currentEventIndex].eventId;
+        } else {
+          await ctx.reply(
+            `Схоже в твоєму місті подій немає, зв'яжись з підримкою, якщо хочеш побачити підбірку подій у своєму місті`,
+            Markup.removeKeyboard()
+          );
+        }
+        await this.registerUserLastActivity(user.userId);
+      } else {
+        await ctx.reply(
+          'Щоб користуватись промокодами спочатку треба створити акаунт',
+          Markup.keyboard([['👤 Створити профіль']])
+            .oneTime()
+            .resize()
+        );
+      }
+    });
+    botEventList.hears('❤️', async (ctx) => {
+      if (!ctx.session.eventDetails) {
+        ctx.session.eventDetails = {
+          lookingFor: '',
+          eventId: 0,
+        };
+      }
+      ctx.session.eventDetails.eventId = currentEventId;
+      currentEventIndex++;
+      await ctx.scene.enter('botEventLookingFor');
+    });
+    botEventList.hears('👎', async (ctx) => {
+      currentEventIndex++;
+      await this.showBotEvent(events, currentEventIndex, ctx);
+    });
+    botEventList.hears('👤 Створити профіль', async (ctx) => {
+      await ctx.scene.enter('userform');
+    });
+    this.addCommands(botEventList);
+    botEventList.on('message', async (ctx) => {
+      await ctx.reply('Обери подію на яку хочеш піти з кимось');
+    });
+    return botEventList;
+  }
+
+  private isLookingForEventMatch = false;
+  botEventLookingForScene(): Scenes.BaseScene<MySceneContext> {
+    const botEventLookingFor = new Scenes.BaseScene<MySceneContext>(
+      'botEventLookingFor'
+    );
+    botEventLookingFor.enter(async (ctx) => {
+      await ctx.reply(
+        'Чудово! Кого бажаєш запросити',
+        Markup.keyboard([['Дівчину', 'Хлопця', 'Будь-кого']]).resize()
+      );
+    });
+    this.addCommands(botEventLookingFor);
+    botEventLookingFor.on('text', async (ctx) => {
+      switch (ctx.message.text) {
+        case 'Дівчину':
+          ctx.session.eventDetails.lookingFor = 'female';
+          break;
+        case 'Хлопця':
+          ctx.session.eventDetails.lookingFor = 'male';
+          break;
+        case 'Будь-кого':
+          ctx.session.eventDetails.lookingFor = 'both';
+          break;
+        default:
+          await ctx.reply(
+            'Обери кого бажаєш запросити',
+            Markup.keyboard([['Дівчину', 'Хлопця', 'Будь-кого']]).resize()
+          );
+      }
+      if (ctx.session.eventDetails.lookingFor) {
+        this.isLookingForEventMatch = true;
+        await ctx.scene.enter('lookForMatch');
+      }
+    });
+    botEventLookingFor.on('message', async (ctx) => {
+      await ctx.reply(
+        'Обери кого бажаєш запросити',
+        Markup.keyboard([['Дівчину', 'Хлопця', 'Будь-кого']]).resize()
+      );
+    });
+    return botEventLookingFor;
+  }
 
   eventListScene(): Scenes.BaseScene<MySceneContext> {
     const eventList = new Scenes.BaseScene<MySceneContext>('eventList');
@@ -1102,13 +1237,12 @@ export class SceneGenerator {
 👀 Пам ятайте, що люди в Інтернеті можуть бути не тими, за кого себе видають`,
           Markup.keyboard([['❤️', '👎', 'Скарга']]).resize()
         );
-        //
-        //
         if (!ctx.session.userForm.isActive) {
           ctx.session.userForm.isActive = true;
           await this.db
             .collection('users')
             .updateOne({ userId: ctx.from!.id }, { $set: { isActive: true } });
+          await ctx.reply('З поверненням тебе 🤗\nТвоя анкета знову у пошуку');
         }
         const viewQuery = [
           {
@@ -1243,7 +1377,6 @@ export class SceneGenerator {
       }
       if (!ctx.session.userForm.isPremium) {
         ctx.session.userForm.likesSentCount++;
-
         await this.db
           .collection('users')
           .updateOne(
@@ -1277,6 +1410,7 @@ export class SceneGenerator {
             const mentionMessage =
               username || `[${ctx.from?.first_name}](${userLink})`;
             const userForm = await this.getUserFormDataFromDatabase(userId);
+            let message = `👀Один краш поставив вподобайку твоєму профілю, щоб переглянути хто це перейди у *архів лайків* 🗄`;
             if (userForm) {
               await this.db
                 .collection('users')
@@ -1284,22 +1418,32 @@ export class SceneGenerator {
                   { userId: previousUserId },
                   { $inc: { likesCount: 1 } }
                 );
-              await ctx.telegram.sendMessage(
-                previousUserId,
-                `👀Один краш поставив вподобайку твоєму профілю, щоб переглянути хто це перейди у *архів лайків* 🗄`,
-                {
-                  parse_mode: 'Markdown',
-                  reply_markup: {
-                    keyboard: [['🗄 Перейти у архів']],
-                    resize_keyboard: true,
-                  },
-                }
-              );
-              await this.db.collection('matches').insertOne({
+              if (this.isLookingForEventMatch) {
+                message = `👀Один краш запрошує тебе кудись, щоб переглянути хто це перейди у *архів лайків* 🗄`;
+              }
+              await ctx.telegram.sendMessage(previousUserId, message, {
+                parse_mode: 'Markdown',
+                reply_markup: {
+                  keyboard: [['🗄 Перейти у архів']],
+                  resize_keyboard: true,
+                },
+              });
+              const insertData: {
+                senderId: number;
+                receiverId: number;
+                senderMentionMessage: string;
+                eventId?: number;
+              } = {
                 senderId: userId,
                 receiverId: previousUserId,
                 senderMentionMessage: mentionMessage,
-              });
+              };
+
+              if (ctx.session.eventDetails?.eventId) {
+                insertData.eventId = ctx.session.eventDetails.eventId;
+              }
+
+              await this.db.collection('matches').insertOne(insertData);
             }
           }
         } catch (error) {
@@ -1444,6 +1588,7 @@ export class SceneGenerator {
       );
     });
     lookForMatch.leave(async () => {
+      this.isLookingForEventMatch = false;
       console.log('leave scene');
       if (job) {
         console.log('leave job');
@@ -1535,12 +1680,17 @@ export class SceneGenerator {
     let currentIndex = 0;
     likeArchive.enter(async (ctx) => {
       currentIndex = 0;
-      this.client.connect();
+      if (!this.isConnectionOpened) {
+        await this.client.connect();
+      }
       const userForm = (await this.db
         .collection('users')
         .findOne({ userId: ctx.from!.id })) as unknown as UserForm;
       if (!ctx.session.userForm) {
         ctx.session.userForm = new UserFormModel({});
+      }
+      if (!ctx.session.eventDetails) {
+        ctx.session.eventDetails = { lookingFor: '', eventId: 0 };
       }
       Object.assign(ctx.session.userForm, userForm);
       matches = await this.db
@@ -1555,6 +1705,15 @@ export class SceneGenerator {
             resize_keyboard: true,
           },
         });
+        let isEventMatch = matches[currentIndex].eventId ? true : false;
+        let event;
+        console.log(isEventMatch);
+        if (isEventMatch) {
+          event = await this.db
+            .collection('bot_events')
+            .findOne({ eventId: matches[currentIndex].eventId });
+        }
+        console.log('event: ', event);
         const user = await this.db
           .collection('users')
           .findOne({ userId: matches[currentIndex].senderId });
@@ -1580,7 +1739,30 @@ export class SceneGenerator {
             })
           );
           await ctx.replyWithMediaGroup(mediaGroup);
-          currentIndex++;
+          if (isEventMatch && event) {
+            await ctx.reply('👆🏻 Запрошує тебе 👇🏻');
+            let caption = `*Назва події:* ${event.eventName}\n*Дата та час події:* ${event.date}\n*Місто:* ${event.location}`;
+            if (event.about) {
+              caption = `${caption}\n*Деталі: * ${event.about}`;
+            }
+            if (event.mediaIds && event.mediaIds.length > 0) {
+              const mediaGroup: MediaGroup = event.mediaIds.map(
+                (mediaObj: { type: string; id: string }, index: number) => ({
+                  type: mediaObj.type as 'document',
+                  media: mediaObj.id,
+                  caption: index === 0 ? caption : undefined,
+                  parse_mode: index === 0 ? 'Markdown' : undefined,
+                })
+              );
+              await ctx.telegram.sendMediaGroup(ctx.from!.id, mediaGroup);
+            } else {
+              await ctx.reply(caption, {
+                parse_mode: 'Markdown',
+              });
+            }
+            currentIndex++;
+            isEventMatch = false;
+          }
         } else {
           await ctx.reply(
             `Схоже це все\n\n Можеш розпочати пошук або переглянути свій профіль\n👫 — Розпочати звичайний пошук\n👤 — Переглянути свій профіль`,
@@ -1641,7 +1823,12 @@ export class SceneGenerator {
           parse_mode: 'Markdown',
         }
       );
-
+      await this.db
+        .collection('users')
+        .updateOne(
+          { userId: matches[currentIndex - 1].senderId },
+          { $inc: { likesCount: 1 } }
+        );
       await this.db.collection('matches').deleteMany({
         $or: [
           {
@@ -2275,7 +2462,7 @@ ${complaintsList}`;
       await ctx.scene.enter('greeting');
     });
     scene.command('events', async (ctx) => {
-      await ctx.scene.enter('eventList');
+      await ctx.scene.enter('eventChoose');
     });
     scene.command('people', async (ctx) => {
       await ctx.scene.enter('lookForMatch');
@@ -2302,7 +2489,7 @@ ${complaintsList}`;
       await ctx.scene.enter('lookForMatch');
     });
     scene.hears('🍾 Події', async (ctx) => {
-      await ctx.scene.enter('eventList');
+      await ctx.scene.enter('eventChoose');
     });
     scene.command('premiumTest', async (ctx) => {
       // TEST FUNC DELETE IN PROD!!!!!
@@ -2375,7 +2562,6 @@ ${complaintsList}`;
     } catch (error) {
       console.error('Error saving UserForm data:', error);
     }
-
   }
   async saveEventToDatabase(event: Event) {
     try {
@@ -2390,7 +2576,7 @@ ${complaintsList}`;
     try {
       if (!this.isConnectionOpened) {
         await this.client.connect();
-        console.log('connection opened')
+        console.log('connection opened');
       }
       const userForm = await this.db.collection('users').findOne({ userId });
       return userForm;
@@ -2416,6 +2602,19 @@ ${complaintsList}`;
           userId: { $ne: userId },
           lookingFor: { $in: [userGender, 'both'] },
         })
+        .toArray();
+      return events;
+    } catch (error) {
+      console.error('Error getting events data from db', error);
+    }
+  }
+
+  async getBotEventsListFromDatabase(location: string) {
+    try {
+      const regex = new RegExp(location, 'i');
+      const events = await this.db
+        .collection('bot_events')
+        .find({ location: { $regex: regex } })
         .toArray();
       return events;
     } catch (error) {
@@ -2600,7 +2799,7 @@ ${complaintsList}`;
     const event = events[currentIndex];
     if (event) {
       const eventInitiatorId = event.userId.toString();
-      const message = `Назва події: ${event.eventName}\nДата та час події: ${event.date}`;
+      const message = `*Назва події:* ${event.eventName}\n*Дата та час події:* ${event.date}`;
       const inlineKeyboardMarkup = Markup.inlineKeyboard([
         Markup.button.callback(
           '✅ Хочу піти',
@@ -2610,12 +2809,12 @@ ${complaintsList}`;
       ]);
 
       if (event.about) {
-        await ctx.reply(
-          `${message}\nДеталі: ${event.about}`,
+        await ctx.replyWithMarkdownV2(
+          `${message}\n*Деталі:* ${event.about}`,
           inlineKeyboardMarkup
         );
       } else {
-        await ctx.reply(message, inlineKeyboardMarkup);
+        await ctx.replyWithMarkdownV2(message, inlineKeyboardMarkup);
       }
     } else {
       await ctx.reply(
@@ -2624,6 +2823,42 @@ ${complaintsList}`;
       );
     }
   }
+
+  async showBotEvent(
+    events: Event[],
+    currentIndex: number,
+    ctx: MySceneContext
+  ) {
+    const event = events[currentIndex];
+    if (event) {
+      let caption = `*Назва події:* ${event.eventName}\n*Дата та час події:* ${event.date}\n*Місто:* ${event.location}`;
+      if (event.about) {
+        caption = `${caption}\n*Деталі: * ${event.about}`;
+      }
+      if (event.mediaIds && event.mediaIds.length > 0) {
+        const mediaGroup: MediaGroup = event.mediaIds.map(
+          (mediaObj: { type: string; id: string }, index: number) => ({
+            type: mediaObj.type as 'document',
+            media: mediaObj.id,
+            caption: index === 0 ? caption : undefined,
+            parse_mode: index === 0 ? 'Markdown' : undefined,
+          })
+        );
+        await ctx.telegram.sendMediaGroup(ctx.from!.id, mediaGroup);
+        return;
+      }
+      await ctx.reply(caption, {
+        parse_mode: 'Markdown',
+      });
+      return;
+    } else {
+      await ctx.reply(
+        'Подій, які підходять під твої запити, більше немає, можеш створити нову',
+        Markup.removeKeyboard()
+      );
+    }
+  }
+
   async showUserEvent(
     events: Event[],
     currentIndex: number,
