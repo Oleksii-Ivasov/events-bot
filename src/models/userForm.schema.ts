@@ -1,4 +1,4 @@
-import mongoose from 'mongoose';
+import mongoose, { Schema } from 'mongoose';
 
 const userFormSchema = new mongoose.Schema({
   userId: {
@@ -17,7 +17,7 @@ const userFormSchema = new mongoose.Schema({
     type: Number,
     required: true,
   },
-  about: String,
+  about: Schema.Types.Mixed,
   lookingFor: {
     type: String,
     required: true,

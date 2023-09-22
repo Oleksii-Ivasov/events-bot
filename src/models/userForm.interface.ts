@@ -4,7 +4,10 @@ export interface UserForm {
   gender: string;
   lookingFor: string;
   age: number;
-  about?: string;
+  about?: {
+    type: string,
+    content: string
+  }
   location: string;
   actualLocation:
     | {

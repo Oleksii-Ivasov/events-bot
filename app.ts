@@ -50,7 +50,6 @@ class Bot {
   sceneGenerator = new SceneGenerator(client, this.configService);
   stage = new Scenes.Stage<MySceneContext>(
     [
-      this.sceneGenerator.greetingScene(),
       this.sceneGenerator.nameScene(),
       this.sceneGenerator.ageScene(),
       this.sceneGenerator.genderScene(),
@@ -190,7 +189,7 @@ class Bot {
       
 Команда crush’а міцно обійняла тебе🫂
       `);
-      await ctx.scene.enter('greeting');
+      await ctx.reply('⬇️⁣')
     });
     const regex = /^(.+):(\d+):(.+)$/;
     this.bot.action(regex, async (ctx) => {
