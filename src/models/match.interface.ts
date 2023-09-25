@@ -4,4 +4,9 @@ export interface Match {
   senderMentionMessage: string;
   eventId?: number;
   isUserEvent?: boolean;
+  likeMessage?: {
+    type: string;
+    content: string;
+    caption?: string;
+  } | null;
 }

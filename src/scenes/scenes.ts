@@ -125,21 +125,29 @@ export class SceneGenerator {
     date: '',
     about: undefined,
     lookingFor: '',
+    location: ''
     //ageRange: '',
   };
 
   nameScene(): Scenes.BaseScene<MySceneContext> {
     const name = new Scenes.BaseScene<MySceneContext>('name');
     name.enter(async (ctx) => {
-      await ctx.reply('Як до тебе звертатись?', Markup.removeKeyboard());
+      if (ctx.session.userForm.username) {
+        await ctx.reply(
+          'Як до тебе звертатись?',
+          Markup.keyboard([[ctx.session.userForm.username]])
+            .oneTime()
+            .resize()
+        );
+      } else {
+        await ctx.reply('Як до тебе звертатись?', Markup.removeKeyboard());
+      }
     });
     this.addCommands(name);
     name.on('text', async (ctx) => {
       ctx.session.userForm.userId = ctx.from.id;
       ctx.session.userForm.username = ctx.message.text;
-      if (ctx.session.userForm.username) {
-        await ctx.scene.enter('age');
-      }
+      await ctx.scene.enter('age');
     });
     name.on('message', async (ctx) => {
       await ctx.reply("Давай краще ім'я");
@@ -150,7 +158,16 @@ export class SceneGenerator {
   ageScene(): Scenes.BaseScene<MySceneContext> {
     const age = new Scenes.BaseScene<MySceneContext>('age');
     age.enter(async (ctx) => {
-      await ctx.reply('Скільки тобі років?');
+      if (ctx.session.userForm.age) {
+        await ctx.reply(
+          'Скільки тобі років?',
+          Markup.keyboard([[ctx.session.userForm.age.toString()]])
+            .oneTime()
+            .resize()
+        );
+      } else {
+        await ctx.reply('Скільки тобі років?');
+      }
     });
     this.addCommands(age);
     age.on('text', async (ctx) => {
@@ -228,21 +245,25 @@ export class SceneGenerator {
   AboutScene(): Scenes.BaseScene<MySceneContext> {
     const about = new Scenes.BaseScene<MySceneContext>('about');
     about.enter(async (ctx) => {
-      if (ctx.session.userForm.isPremium) {
-        await ctx.reply(
-          'Напиши пару слів про себе: що полюбляєш, кого шукаєш, або запиши голосове',
-          Markup.keyboard(['Пропустити']).resize()
-        );
-      } else {
-        await ctx.reply(
-          'Напиши пару слів про себе: що полюбляєш, кого шукаєш',
-          Markup.keyboard(['Пропустити']).resize()
-        );
-      }
+      const isPremiumUser = ctx.session.userForm.isPremium;
+      const hasAbout = ctx.session.userForm.about !== undefined;
+      const premiumMessage = isPremiumUser ? ' або запиши голосове' : '';
+      const defaultMessage = `Напиши пару слів про себе: що полюбляєш, кого шукаєш${premiumMessage}`;
+      const keyboardOptions = hasAbout
+        ? ['Пропустити', 'Залишити як є']
+        : ['Пропустити'];
+      await ctx.reply(
+        defaultMessage,
+        Markup.keyboard(keyboardOptions).oneTime().resize()
+      );
     });
     this.addCommands(about);
+    about.hears('Залишити як є', async (ctx) => {
+      await ctx.scene.enter('socialLinks');
+    });
     about.hears('Пропустити', async (ctx) => {
-      await ctx.scene.enter('userform');
+      ctx.session.userForm.about = undefined;
+      await ctx.scene.enter('socialLinks');
     });
     about.on('voice', async (ctx) => {
       if (!ctx.session.userForm.isPremium) {
@@ -252,7 +273,7 @@ export class SceneGenerator {
           type: 'voice',
           content: ctx.message.voice.file_id,
         };
-        ctx.scene.enter('photo');
+        ctx.scene.enter('socialLinks');
       }
     });
     about.on('text', async (ctx) => {
@@ -264,7 +285,7 @@ export class SceneGenerator {
           type: 'text',
           content: userAbout,
         };
-        ctx.scene.enter('photo');
+        ctx.scene.enter('socialLinks');
       }
     });
     about.on('message', async (ctx) => {
@@ -272,103 +293,225 @@ export class SceneGenerator {
     });
     return about;
   }
+
+  socialLinksScene(): Scenes.BaseScene<MySceneContext> {
+    const socialLinks = new Scenes.BaseScene<MySceneContext>('socialLinks');
+    let inst = '';
+    let tiktok = '';
+    let isInstField = false;
+    let isTikTokField = false;
+    let links: string[] = [];
+    socialLinks.enter(async (ctx) => {
+      isInstField = false;
+      isTikTokField = false;
+      inst = '';
+      tiktok = '';
+      links = [];
+      const upperKeyboard = [];
+      const lowerKeyboard = [];
+      if (
+        ctx.session.userForm.socialLinks &&
+        ctx.session.userForm.socialLinks.length > 0
+      ) {
+        upperKeyboard.push('Залишити як є');
+      }
+      if (!inst) {
+        lowerKeyboard.push('Instagram');
+      }
+      if (!tiktok) {
+        lowerKeyboard.push('TikTok');
+      }
+      upperKeyboard.push('Пропустити');
+      await ctx.reply(
+        'Можеш залишити посилання на свою соцмережу (преміум-користувачі можуть залишати до 2 посилань)',
+        Markup.keyboard([upperKeyboard, lowerKeyboard]).oneTime().resize()
+      );
+    });
+    socialLinks.hears('Пропустити', async (ctx) => {
+      ctx.session.userForm.socialLinks = links;
+      await ctx.scene.enter('photo');
+    });
+    socialLinks.hears('Залишити як є', async (ctx) => {
+      await ctx.scene.enter('photo');
+    });
+    socialLinks.hears('Це все, зберегти', async (ctx) => {
+      ctx.session.userForm.socialLinks = links;
+      await ctx.scene.enter('photo');
+    });
+    socialLinks.hears('Instagram', async (ctx) => {
+      isInstField = true;
+      isTikTokField = false;
+      await ctx.reply('Тепер вкажи свій нікнейм в Instagram');
+    });
+    socialLinks.hears('TikTok', async (ctx) => {
+      isTikTokField = true;
+      isInstField = false;
+      await ctx.reply('Тепер вкажи свій нікнейм в TikTok');
+    });
+    this.addCommands(socialLinks);
+    socialLinks.on('text', async (ctx) => {
+      const availableLinks = ctx.session.userForm.isPremium ? 2 : 1;
+
+      if (ctx.message.text.length > 300) {
+        await ctx.reply('Занадто багато тексту, як для посилань');
+      } else {
+        let linkText = '';
+        if (isInstField) {
+          inst = `https://www.instagram.com/${ctx.message.text}`;
+          linkText = `[Instagram](${inst})`;
+        } else if (isTikTokField) {
+          tiktok = `https://www.tiktok.com/@${ctx.message.text}`;
+          linkText = `[TikTok](${tiktok})`;
+        }
+        links.push(linkText);
+        await ctx.reply('✅ Посилання додано');
+        if (links.length < availableLinks) {
+          const keyboard = [];
+          if (!inst) {
+            keyboard.push('Instagram');
+          }
+          if (!tiktok) {
+            keyboard.push('TikTok');
+          }
+          keyboard.push('Це все, зберегти');
+          await ctx.reply(
+            'Залиште ще посилання або натисніть "Це все, зберегти".',
+            Markup.keyboard([keyboard]).oneTime().resize()
+          );
+        } else {
+          ctx.session.userForm.socialLinks = links;
+          await ctx.scene.enter('photo');
+        }
+      }
+    });
+    socialLinks.on('message', async (ctx) => {
+      await ctx.reply(
+        'За бажанням, залиш посилання на свою соцмережу (преміум-користувачі можуть залишати до 3 посилань)',
+        Markup.keyboard(['Пропустити']).oneTime().resize()
+      );
+    });
+    return socialLinks;
+  }
+
   locationScene(): Scenes.BaseScene<MySceneContext> {
     const location = new Scenes.BaseScene<MySceneContext>('location');
     location.enter(async (ctx) => {
-      await ctx.reply(
-        'З якого ти міста?',
-        Markup.keyboard([
-          Markup.button.locationRequest('Відправити місцезнаходження'),
-        ]).resize()
-      );
+      if (ctx.session.userForm.location) {
+        await ctx.reply(
+          'З якого ти міста?',
+          Markup.keyboard([
+            `${ctx.session.userForm.location}`,
+            Markup.button.locationRequest('Відправити місцезнаходження'),
+          ])
+            .oneTime()
+            .resize()
+        );
+      } else {
+        await ctx.reply(
+          'З якого ти міста?',
+          Markup.keyboard([
+            Markup.button.locationRequest('Відправити місцезнаходження'),
+          ])
+            .oneTime()
+            .resize()
+        );
+      }
     });
     this.addCommands(location);
     location.on('location', async (ctx) => {
       try {
-        const { latitude, longitude } = ctx.message.location;
+        ctx.session.userForm.coordinates = ctx.message.location;
         const userLocationName = await this.getUserCityFromCoordinates(
-          latitude,
-          longitude
+          ctx.session.userForm.coordinates.latitude,
+          ctx.session.userForm.coordinates.longitude
         );
         ctx.session.userForm.actualLocation = userLocationName.toLowerCase();
         ctx.session.userForm.location = userLocationName;
         await ctx.scene.enter('about');
       } catch (error) {
-        ctx.reply('Упс... Відбулася помилка');
+        console.error('Location detection error: ', error);
       }
     });
     location.on('text', async (ctx) => {
-      const rawData = fs.readFileSync('./UA.json', 'utf8');
-      const dataArray = JSON.parse(rawData);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const cityNamesArray: any[] = [];
-
-      dataArray.forEach(
+      if (
+        ctx.session.userForm.location &&
+        ctx.session.userForm.actualLocation &&
+        ctx.session.userForm.location === ctx.message.text
+      ) {
+        await ctx.scene.enter('about');
+      } else {
+        const rawData = fs.readFileSync('./UA.json', 'utf8');
+        const dataArray = JSON.parse(rawData);
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (entry: { type: string; public_name: string; name: any }) => {
-          const type = entry.type.toLowerCase();
-          const isState = type === 'state';
-          const nameToUse = isState ? entry.public_name : entry.name;
+        const cityNamesArray: any[] = [];
 
-          if (['city', 'urban', 'settlement', 'state'].includes(type)) {
-            let variations = [
-              nameToUse.en.toLowerCase(),
-              nameToUse.ru.toLowerCase(),
-              nameToUse.uk.toLowerCase(),
-            ];
-            let original = nameToUse.uk;
-            if (isState) {
-              original = nameToUse.uk.replace(/ обл\.$/, ' область');
-              variations = variations.map((variation) =>
-                variation.replace(/ обл\.$/, ' область')
-              );
+        dataArray.forEach(
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (entry: { type: string; public_name: string; name: any }) => {
+            const type = entry.type.toLowerCase();
+            const isState = type === 'state';
+            const nameToUse = isState ? entry.public_name : entry.name;
+
+            if (['city', 'urban', 'settlement', 'state'].includes(type)) {
+              let variations = [
+                nameToUse.en.toLowerCase(),
+                nameToUse.ru.toLowerCase(),
+                nameToUse.uk.toLowerCase(),
+              ];
+              let original = nameToUse.uk;
+              if (isState) {
+                original = nameToUse.uk.replace(/ обл\.$/, ' область');
+                variations = variations.map((variation) =>
+                  variation.replace(/ обл\.$/, ' область')
+                );
+              }
+              cityNamesArray.push({ variations, original, type });
             }
-            cityNamesArray.push({ variations, original, type });
+          }
+        );
+        let userInput = ctx.message.text;
+        const isInputEnglish = /[a-zA-Z]/.test(userInput);
+        if (isInputEnglish) {
+          userInput = userInput
+            .trim()
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '');
+        } else {
+          userInput = userInput.trim().toLowerCase();
+        }
+
+        const options = {
+          includeScore: true,
+          keys: ['variations'],
+          threshold: 0.2,
+        };
+        const priorityOrder = ['city', 'urban', 'state', 'settlement'];
+        const matchingCities = [];
+        for (const type of priorityOrder) {
+          const citiesOfType = cityNamesArray.filter(
+            (item) => item.type === type
+          );
+          const fuse = new Fuse(citiesOfType, options);
+          const bestMatches = fuse.search(userInput);
+          const matchingOfType = bestMatches.filter((match) =>
+            priorityOrder.includes(match.item.type)
+          );
+          if (matchingOfType.length > 0) {
+            matchingCities.push(matchingOfType[0]);
           }
         }
-      );
-      let userInput = ctx.message.text;
-      const isInputEnglish = /[a-zA-Z]/.test(userInput);
-      if (isInputEnglish) {
-        userInput = userInput
-          .trim()
-          .toLowerCase()
-          .normalize('NFD')
-          .replace(/[\u0300-\u036f]/g, '');
-      } else {
-        userInput = userInput.trim().toLowerCase();
-      }
-
-      const options = {
-        includeScore: true,
-        keys: ['variations'],
-        threshold: 0.2,
-      };
-      const priorityOrder = ['city', 'urban', 'state', 'settlement'];
-      const matchingCities = [];
-      for (const type of priorityOrder) {
-        const citiesOfType = cityNamesArray.filter(
-          (item) => item.type === type
-        );
-        const fuse = new Fuse(citiesOfType, options);
-        const bestMatches = fuse.search(userInput);
-        const matchingOfType = bestMatches.filter((match) =>
-          priorityOrder.includes(match.item.type)
-        );
-        if (matchingOfType.length > 0) {
-          matchingCities.push(matchingOfType[0]);
+        ctx.session.userForm.coordinates = undefined;
+        if (matchingCities.length > 0) {
+          ctx.session.userForm.actualLocation =
+            matchingCities[0].item.original.toLowerCase();
+          ctx.session.userForm.location = ctx.message.text;
+          await ctx.scene.enter('about');
+        } else {
+          ctx.session.userForm.location = ctx.message.text;
+          ctx.session.userForm.actualLocation = ctx.message.text.toLowerCase();
+          await ctx.scene.enter('about');
         }
-      }
-
-      if (matchingCities.length > 0) {
-        ctx.session.userForm.actualLocation =
-          matchingCities[0].item.original.toLowerCase();
-        ctx.session.userForm.location = ctx.message.text;
-        await ctx.scene.enter('about');
-      } else {
-        ctx.session.userForm.location = ctx.message.text;
-        ctx.session.userForm.actualLocation = ctx.message.text.toLowerCase();
-        await ctx.scene.enter('about');
       }
     });
     location.on('message', async (ctx) => {
@@ -415,6 +558,7 @@ export class SceneGenerator {
   private maxVideoDuration: number = 15;
   private isUploaded = false;
   private uploadNumber = 0;
+  private mediaIds: { type: string; id: string }[] = [];
   photoScene(): Scenes.BaseScene<MySceneContext> {
     const photo = new Scenes.BaseScene<MySceneContext>('photo');
     let type: string;
@@ -426,7 +570,7 @@ export class SceneGenerator {
       mediaId: string
     ) => {
       if (!isMediaLimitReached(ctx)) {
-        ctx.session.userForm.mediaIds.push({ type: mediaType, id: mediaId });
+        this.mediaIds.push({ type: mediaType, id: mediaId });
         this.uploadNumber++;
       }
       if (mediaType === 'video') {
@@ -449,6 +593,7 @@ export class SceneGenerator {
             .resize()
         );
         this.isUploaded = true;
+        ctx.session.userForm.mediaIds = this.mediaIds;
         await this.saveUserFormToDatabase(ctx.session.userForm);
         await ctx.scene.enter('userform');
       }
@@ -456,15 +601,30 @@ export class SceneGenerator {
     photo.enter(async (ctx) => {
       this.maxPhotoCount = ctx.session.userForm.isPremium ? 7 : 3;
       this.maxVideoDuration = ctx.session.userForm.isPremium ? 60 : 15;
-      ctx.session.userForm.mediaIds = [];
+      this.mediaIds = [];
       this.uploadNumber = 0;
       this.isUploaded = false;
       const photoPrompt = `Обери свої найкращі фото (максимум ${this.maxPhotoCount}) або відео (тривалістю до ${this.maxVideoDuration} секунд), які будуть бачити інші`;
-      await ctx.reply(photoPrompt, Markup.removeKeyboard());
+      if (ctx.session.userForm.mediaIds.length > 0) {
+        await ctx.reply(
+          photoPrompt,
+          Markup.keyboard([['Залишити як є']])
+            .oneTime()
+            .resize()
+        );
+      } else {
+        await ctx.reply(photoPrompt, Markup.removeKeyboard());
+      }
     });
 
     this.addCommands(photo);
-
+    photo.hears('Залишити як є', async (ctx) => {
+      if (ctx.session.userForm.mediaIds.length > 0) {
+        this.isUploaded = true;
+        await this.saveUserFormToDatabase(ctx.session.userForm);
+        await ctx.scene.enter('userform');
+      }
+    });
     photo.on('photo', async (ctx) => {
       const photos = ctx.message.photo;
       photos.sort((a, b) => {
@@ -487,6 +647,7 @@ export class SceneGenerator {
     });
     photo.hears('Це все, зберегти медіа', async (ctx) => {
       this.isUploaded = true;
+      ctx.session.userForm.mediaIds = this.mediaIds;
       await this.saveUserFormToDatabase(ctx.session.userForm);
       await ctx.scene.enter('userform');
     });
@@ -532,7 +693,14 @@ export class SceneGenerator {
             (userForm.isPremium && userForm.showLikesCount
               ? `\n\n*❤️ — ${userForm.likesCount ?? 0}*`
               : '');
-
+          if (userForm.socialLinks && userForm.socialLinks.length > 0) {
+            let message = '';
+            for (const link of userForm.socialLinks) {
+              message = message ? message + ' | ' : message + '';
+              message = message + link;
+            }
+            caption = caption + '\n\n' + message;
+          }
           const mediaGroup: MediaGroup = userForm.mediaIds.map(
             (mediaObj: { type: string; id: string }, index: number) => ({
               type: mediaObj.type as 'document',
@@ -733,6 +901,7 @@ export class SceneGenerator {
         date: '',
         about: undefined,
         lookingFor: '',
+        location: ''
       };
       ctx.reply('Напиши назву події', Markup.removeKeyboard());
     });
@@ -815,11 +984,7 @@ export class SceneGenerator {
           );
       }
       if (this.event.lookingFor) {
-        await this.saveEventToDatabase(this.event);
-        await ctx.reply(
-          `Бінго! Очікуй на свій perfect match та неймовірно проведений час `,
-          Markup.removeKeyboard()
-        );
+        await ctx.scene.enter('eventLocation');
       }
     });
     eventLookingFor.on('message', async (ctx) => {
@@ -829,6 +994,54 @@ export class SceneGenerator {
       );
     });
     return eventLookingFor;
+  }
+
+  eventLocationScene(): Scenes.BaseScene<MySceneContext> {
+    const eventLocation = new Scenes.BaseScene<MySceneContext>('eventLocation');
+    eventLocation.enter(async (ctx) => {
+      if (ctx.session.userForm.location) {
+        await ctx.reply(
+          'Вкажи місто у якому буде проводитись подія',
+          Markup.keyboard([[ctx.session.userForm.location]])
+            .oneTime()
+            .resize()
+        );
+      } else {
+        await ctx.reply(
+          'Вкажи місто у якому буде проводитись подія',
+          Markup.removeKeyboard()
+        );
+      }
+    });
+    this.addCommands(eventLocation);
+    eventLocation.on('text', async (ctx) => {
+      if (ctx.message.text.length > 30) {
+        await ctx.reply('Занадто довга назва міста');
+      } else {
+        this.event.location = ctx.message.text;
+        await this.saveEventToDatabase(this.event);
+        await ctx.reply(
+          `Бінго! Очікуй на свій perfect match та неймовірно проведений час `,
+          Markup.removeKeyboard()
+        );
+      }
+    });
+    eventLocation.on('message', async (ctx) => {
+      if (ctx.session.userForm.location) {
+        await ctx.reply(
+          'Вкажи місто у якому буде проводитись подія',
+          Markup.keyboard([[ctx.session.userForm.location]])
+            .oneTime()
+            .resize()
+        );
+      } else {
+        await ctx.reply(
+          'Вкажи місто у якому буде проводитись подія',
+          Markup.removeKeyboard()
+        );
+      }
+    });
+    return eventLocation;
   }
   // eventAgeRangeScene(): Scenes.BaseScene<MySceneContext> {
   //   const eventAgeRange = new Scenes.BaseScene<MySceneContext>('eventAgeRange');
@@ -920,7 +1133,6 @@ export class SceneGenerator {
             Markup.keyboard([['❤️', '👎']]).resize()
           );
           await this.showBotEvent(events, currentEventIndex, ctx);
-          currentEventId = events[currentEventIndex].eventId;
         } else {
           await ctx.reply(
             `Схоже в твоєму місті подій немає, зв'яжись з підримкою, якщо хочеш побачити підбірку подій у своєму місті`,
@@ -938,12 +1150,13 @@ export class SceneGenerator {
       }
     });
     botEventList.hears('❤️', async (ctx) => {
-      if (!ctx.session.eventDetails) {
+      if (!ctx.session.eventDetails?.lookingFor) {
         ctx.session.eventDetails = {
           lookingFor: '',
           eventId: 0,
         };
       }
+      currentEventId = events[currentEventIndex].eventId;
       ctx.session.eventDetails.eventId = currentEventId;
       currentEventIndex++;
       await ctx.scene.enter('botEventLookingFor');
@@ -1015,7 +1228,7 @@ export class SceneGenerator {
     eventList.enter(async (ctx) => {
       const userForm = await this.getUserFormDataFromDatabase(ctx.from!.id);
       if (userForm) {
-        if (!ctx.session.userForm) {
+        if (!ctx.session.userForm?.userId) {
           ctx.session.userForm = new UserFormModel({});
         }
         Object.assign(ctx.session.userForm, userForm);
@@ -1023,7 +1236,8 @@ export class SceneGenerator {
         eventId = 0;
         events = (await this.getEventsFromDatabase(
           userForm.userId,
-          userForm.gender
+          userForm.gender,
+          userForm.actualLocation
         )) as unknown as Event[];
         await ctx.reply(`🍾 Розпочинаємо пошук подій...
 
@@ -1060,39 +1274,18 @@ export class SceneGenerator {
     eventList.action(regex, async (ctx) => {
       eventUserId = +ctx.match[1];
       eventId = +ctx.match[2];
-      const eventUser = await this.getUserFormDataFromDatabase(eventUserId);
+      const eventUser = await this.getUserFormDataFromDatabase(eventUserId) as unknown as UserForm;
       if (eventUser) {
         const event = await this.getEventFromDatabase(eventUserId, eventId);
         if (event) {
           await ctx.editMessageReplyMarkup(undefined);
-          let caption = `*Ім'я:* ${eventUser.username}
-*Вік:* ${eventUser.age}
-*Місто:* ${eventUser.location}`;
-          if (eventUser.about.type === 'text') {
-            caption = caption + `\n\n*Про себе:* ${eventUser.about.content}`;
-          }
-          if (ctx.session.userForm.isPremium) {
-            caption =
-              caption +
-              (!eventUser.isPremium ||
-              (eventUser.isPremium && eventUser.showLikesCount)
-                ? `\n\n*❤️ — ${eventUser.likesCount ?? 0}*`
-                : '');
-          }
+        const mediaGroup =  this.showUserProfile(eventUser, ctx.session.userForm)
           await ctx.reply(
             'Ініціатор запрошення на подію 👇🏻',
             Markup.keyboard([['❤️', '👎']]).resize()
           );
-          const mediaGroup: MediaGroup = eventUser.mediaIds.map(
-            (mediaObj: { type: string; id: string }, index: number) => ({
-              type: mediaObj.type as 'document',
-              media: mediaObj.id,
-              caption: index === 0 ? caption : undefined,
-              parse_mode: index === 0 ? 'Markdown' : undefined,
-            })
-          );
           await ctx.replyWithMediaGroup(mediaGroup);
-          if (eventUser.about.type === 'voice') {
+          if (eventUser.about && eventUser.about.type === 'voice') {
             await ctx.replyWithVoice(eventUser.about.content, {
               caption: '*Про себе:*',
               parse_mode: 'Markdown',
@@ -1249,6 +1442,18 @@ export class SceneGenerator {
         //                   ],
         //                 },
         //               });
+        try {
+          const message = `👀Один краш відгукнувся на твою подію, щоб переглянути хто це перейди у *архів лайків* 🗄`;
+          await ctx.telegram.sendMessage(eventUserId, message, {
+            parse_mode: 'Markdown',
+            reply_markup: {
+              keyboard: [['🗄 Перейти у архів']],
+              resize_keyboard: true,
+            },
+          });
+        } catch (error) {
+          console.error('Event like error: ', error)
+        }
         await ctx.reply(
           `Супер! Очікуй на повідомлення від ініціатора події 🥳 Бажаю приємно провести час 👋`,
           Markup.removeKeyboard()
@@ -1280,6 +1485,8 @@ export class SceneGenerator {
   private reportedUserId: number | undefined = undefined;
   private isProfilesEnded = false;
   private isProfilesWithLocationEnded = false;
+  private isLikeMessage = false;
+  private insertData: Match | undefined;
   lookForMatchScene(): Scenes.BaseScene<MySceneContext> {
     const lookForMatch = new Scenes.BaseScene<MySceneContext>('lookForMatch');
     let currentUserIndex = 0;
@@ -1287,6 +1494,8 @@ export class SceneGenerator {
     let userMatchForms: UserForm[];
     lookForMatch.enter(async (ctx) => {
       this.isProfilesEnded = false;
+      this.isLikeMessage = false;
+      this.insertData = undefined;
       this.isProfilesWithLocationEnded = false;
       const userFormData = await this.getUserFormDataFromDatabase(ctx.from!.id);
       if (userFormData && userFormData.banExpirationDate) {
@@ -1306,7 +1515,7 @@ export class SceneGenerator {
 Сподіваємось, ти знайдеш свого краша
             
 👀 Пам ятайте, що люди в Інтернеті можуть бути не тими, за кого себе видають`,
-          Markup.keyboard([['❤️', '👎', 'Скарга']]).resize()
+          Markup.keyboard([['❤️', '❤️‍🔥', '👎', 'Скарга']]).resize()
         );
         if (!ctx.session.userForm.isActive) {
           ctx.session.userForm.isActive = true;
@@ -1436,6 +1645,7 @@ export class SceneGenerator {
       }
     });
     lookForMatch.hears('❤️', async (ctx) => {
+      this.isLikeMessage = false;
       await this.registerUserLastActivity(ctx.session.userForm.userId);
       if (
         !ctx.session.userForm.isPremium &&
@@ -1480,42 +1690,52 @@ export class SceneGenerator {
             const userLink = `tg://user?id=${userId}`;
             const mentionMessage =
               username || `[${ctx.from?.first_name}](${userLink})`;
-            const userForm = await this.getUserFormDataFromDatabase(userId);
             let message = `👀Один краш поставив вподобайку твоєму профілю, щоб переглянути хто це перейди у *архів лайків* 🗄`;
-            if (userForm) {
-              await this.db
-                .collection('users')
-                .updateOne(
-                  { userId: previousUserId },
-                  { $inc: { likesCount: 1 } }
-                );
-              if (this.isLookingForEventMatch) {
-                message = `👀Один краш запрошує тебе кудись, щоб переглянути хто це перейди у *архів лайків* 🗄`;
-              }
-              await ctx.telegram.sendMessage(previousUserId, message, {
-                parse_mode: 'Markdown',
-                reply_markup: {
-                  keyboard: [['🗄 Перейти у архів']],
-                  resize_keyboard: true,
-                },
-              });
-              const insertData: {
-                senderId: number;
-                receiverId: number;
-                senderMentionMessage: string;
-                eventId?: number;
-              } = {
-                senderId: userId,
-                receiverId: previousUserId,
-                senderMentionMessage: mentionMessage,
-              };
-
-              if (ctx.session.eventDetails?.eventId) {
-                insertData.eventId = ctx.session.eventDetails.eventId;
-              }
-
-              await this.db.collection('matches').insertOne(insertData);
+            await this.db
+              .collection('users')
+              .updateOne(
+                { userId: previousUserId },
+                { $inc: { likesCount: 1 } }
+              );
+            if (this.isLookingForEventMatch) {
+              message = `👀Один краш запрошує тебе кудись, щоб переглянути хто це перейди у *архів лайків* 🗄`;
             }
+            await ctx.telegram.sendMessage(previousUserId, message, {
+              parse_mode: 'Markdown',
+              reply_markup: {
+                keyboard: [['🗄 Перейти у архів']],
+                resize_keyboard: true,
+              },
+            });
+            this.insertData = {
+              senderId: userId,
+              receiverId: previousUserId,
+              senderMentionMessage: mentionMessage,
+              likeMessage: null,
+            };
+            if (ctx.session.eventDetails?.eventId) {
+              this.insertData.eventId = ctx.session.eventDetails.eventId;
+            }
+            const updateQuery: {
+              senderId: number;
+              receiverId: number;
+              eventId?: number;
+            } = {
+              senderId: this.insertData.senderId,
+              receiverId: this.insertData.receiverId,
+            };
+            if (this.insertData.eventId) {
+              updateQuery.eventId = this.insertData.eventId;
+            }
+            await this.db.collection('matches').updateOne(
+              updateQuery,
+              {
+                $set: this.insertData,
+              },
+              {
+                upsert: true,
+              }
+            );
           }
         } catch (error) {
           console.error('Error sending notification:', error);
@@ -1605,7 +1825,39 @@ export class SceneGenerator {
       //           }
       //         });
     });
+    lookForMatch.hears('❤️‍🔥', async (ctx) => {
+      await this.registerUserLastActivity(ctx.session.userForm.userId);
+      if (
+        !ctx.session.userForm.isPremium &&
+        ctx.session.userForm.likesSentCount >= MAX_LIKES_LIMIT
+      ) {
+        await ctx.reply(
+          'Вибач, але ти досяг ліміту лайків на сьогодні, купи преміум підписку або почекай до завтра'
+        );
+        return;
+      }
+
+      const symbolCount = ctx.session.userForm.isPremium ? 300 : 70;
+      const premiumMessage = ctx.session.userForm.isPremium
+        ? 'картинку, відео, голосове повідомлення, кружок або'
+        : '';
+      await ctx.reply(
+        `Можеш відправити ${premiumMessage} коротке текстове повідомлення на *${symbolCount}* символів разом з вподобайкою`,
+        { parse_mode: 'Markdown' }
+      );
+      if (!ctx.session.userForm.isPremium) {
+        ctx.session.userForm.likesSentCount++;
+        await this.db
+          .collection('users')
+          .updateOne(
+            { userId: ctx.session.userForm.userId },
+            { $set: { likesSentCount: ctx.session.userForm.likesSentCount } }
+          );
+      }
+      this.isLikeMessage = true;
+    });
     lookForMatch.hears('👎', async (ctx) => {
+      this.isLikeMessage = false;
       await this.registerUserLastActivity(ctx.from.id);
       currentUserIndex++;
       this.isProfilesWithLocationEnded = await this.sendUserDetails(
@@ -1653,6 +1905,619 @@ export class SceneGenerator {
       currentUserIndex++;
     });
     this.addCommands(lookForMatch);
+    lookForMatch.on('text', async (ctx) => {
+      if (this.isLikeMessage) {
+        const allowedSymbolsLength = ctx.session.userForm.isPremium ? 300 : 70;
+        if (ctx.message.text.length > allowedSymbolsLength) {
+          await ctx.reply(
+            `Занадто велике повідомлення, тобі доступно лише *${allowedSymbolsLength}*`,
+            {
+              parse_mode: 'Markdown',
+            }
+          );
+        } else {
+          const previousUser = userMatchForms[currentUserIndex];
+          const previousUserId = previousUser.userId;
+          const viewerUserId = ctx.session.userForm.userId;
+          if (previousUserId) {
+            await this.db.collection('viewed_profiles').insertOne({
+              viewerUserId: viewerUserId,
+              viewedUserId: previousUserId,
+              expiryTimestamp: new Date(Date.now() + TIME_TO_VIEW_EXPIRE),
+            });
+            let username = ctx.from?.username;
+            if (username) {
+              username = '@' + username;
+            }
+            const userId = ctx.from!.id;
+            const userLink = `tg://user?id=${userId}`;
+            const mentionMessage =
+              username || `[${ctx.from?.first_name}](${userLink})`;
+            let message = `👀Один краш поставив вподобайку твоєму профілю, щоб переглянути хто це перейди у *архів лайків* 🗄`;
+            await this.db
+              .collection('users')
+              .updateOne(
+                { userId: previousUserId },
+                { $inc: { likesCount: 1 } }
+              );
+            if (this.isLookingForEventMatch) {
+              message = `👀Один краш запрошує тебе кудись, щоб переглянути хто це перейди у *архів лайків* 🗄`;
+            }
+            this.insertData = {
+              senderId: userId,
+              receiverId: previousUserId,
+              senderMentionMessage: mentionMessage,
+              likeMessage: {
+                type: 'text',
+                content: ctx.message.text,
+              },
+            };
+            if (ctx.session.eventDetails?.eventId) {
+              this.insertData.eventId = ctx.session.eventDetails.eventId;
+            }
+            const updateQuery: {
+              senderId: number;
+              receiverId: number;
+              eventId?: number;
+            } = {
+              senderId: this.insertData.senderId,
+              receiverId: this.insertData.receiverId,
+            };
+            if (this.insertData.eventId) {
+              updateQuery.eventId = this.insertData.eventId;
+            }
+            this.isLikeMessage = false;
+            await ctx.reply(
+              '✅ Відправили твоє повідомлення',
+              Markup.keyboard([['❤️', '❤️‍🔥', '👎', 'Скарга']]).resize()
+            );
+            currentUserIndex++;
+            this.isProfilesWithLocationEnded = await this.sendUserDetails(
+              userMatchForms as unknown as UserForm[],
+              currentUserIndex,
+              ctx
+            );
+            if (this.isProfilesWithLocationEnded && !this.isProfilesEnded) {
+              userMatchForms = await this.loadProfilesWithoutLocationSpecified(
+                ctx
+              );
+              currentUserIndex = 0;
+              this.isProfilesEnded = await this.sendUserDetails(
+                userMatchForms as unknown as UserForm[],
+                currentUserIndex,
+                ctx
+              );
+            }
+            if (this.isProfilesEnded) {
+              await ctx.reply(
+                'Більше немає людей, які підходять під твої запити',
+                Markup.removeKeyboard()
+              );
+            }
+            try {
+              await ctx.telegram.sendMessage(
+                this.insertData.receiverId,
+                message,
+                {
+                  parse_mode: 'Markdown',
+                  reply_markup: {
+                    keyboard: [['🗄 Перейти у архів']],
+                    resize_keyboard: true,
+                  },
+                }
+              );
+              await this.db.collection('matches').updateOne(
+                updateQuery,
+                {
+                  $set: this.insertData,
+                },
+                {
+                  upsert: true,
+                }
+              );
+            } catch (error) {
+              console.error('Like message send error: ', error);
+            }
+          }
+        }
+      } else {
+        await ctx.reply(
+          '❤️ — якщо людина подобається, 👎 — якщо ні, скарга — якщо людина, на твою думку, погано себе веде. Все просто 😉'
+        );
+      }
+    });
+    lookForMatch.on('voice', async (ctx) => {
+      if (this.isLikeMessage) {
+        if (!ctx.session.userForm.isPremium) {
+          await ctx.reply(
+            'Відправка голосових повідомлень доступна тільки преміум користувачам'
+          );
+        } else {
+          if (ctx.message.voice.duration > 60) {
+            await ctx.reply(
+              'Занадто довге голосове, постарайся вкластись у 60 секунд'
+            );
+          } else {
+            const previousUser = userMatchForms[currentUserIndex];
+            const previousUserId = previousUser.userId;
+            const viewerUserId = ctx.session.userForm.userId;
+            if (previousUserId) {
+              await this.db.collection('viewed_profiles').insertOne({
+                viewerUserId: viewerUserId,
+                viewedUserId: previousUserId,
+                expiryTimestamp: new Date(Date.now() + TIME_TO_VIEW_EXPIRE),
+              });
+              let username = ctx.from?.username;
+              if (username) {
+                username = '@' + username;
+              }
+              const userId = ctx.from!.id;
+              const userLink = `tg://user?id=${userId}`;
+              const mentionMessage =
+                username || `[${ctx.from?.first_name}](${userLink})`;
+              let message = `👀Один краш поставив вподобайку твоєму профілю, щоб переглянути хто це перейди у *архів лайків* 🗄`;
+              await this.db
+                .collection('users')
+                .updateOne(
+                  { userId: previousUserId },
+                  { $inc: { likesCount: 1 } }
+                );
+              if (this.isLookingForEventMatch) {
+                message = `👀Один краш запрошує тебе кудись, щоб переглянути хто це перейди у *архів лайків* 🗄`;
+              }
+              this.insertData = {
+                senderId: userId,
+                receiverId: previousUserId,
+                senderMentionMessage: mentionMessage,
+                likeMessage: {
+                  type: 'voice',
+                  content: ctx.message.voice.file_id,
+                },
+              };
+              if (ctx.session.eventDetails?.eventId) {
+                this.insertData.eventId = ctx.session.eventDetails.eventId;
+              }
+              const updateQuery: {
+                senderId: number;
+                receiverId: number;
+                eventId?: number;
+              } = {
+                senderId: this.insertData.senderId,
+                receiverId: this.insertData.receiverId,
+              };
+              if (this.insertData.eventId) {
+                updateQuery.eventId = this.insertData.eventId;
+              }
+              this.isLikeMessage = false;
+              await ctx.reply(
+                '✅ Відправили твоє повідомлення',
+                Markup.keyboard([['❤️', '❤️‍🔥', '👎', 'Скарга']]).resize()
+              );
+              currentUserIndex++;
+              this.isProfilesWithLocationEnded = await this.sendUserDetails(
+                userMatchForms as unknown as UserForm[],
+                currentUserIndex,
+                ctx
+              );
+              if (this.isProfilesWithLocationEnded && !this.isProfilesEnded) {
+                userMatchForms =
+                  await this.loadProfilesWithoutLocationSpecified(ctx);
+                currentUserIndex = 0;
+                this.isProfilesEnded = await this.sendUserDetails(
+                  userMatchForms as unknown as UserForm[],
+                  currentUserIndex,
+                  ctx
+                );
+              }
+              if (this.isProfilesEnded) {
+                await ctx.reply(
+                  'Більше немає людей, які підходять під твої запити',
+                  Markup.removeKeyboard()
+                );
+              }
+              try {
+                await ctx.telegram.sendMessage(
+                  this.insertData.receiverId,
+                  message,
+                  {
+                    parse_mode: 'Markdown',
+                    reply_markup: {
+                      keyboard: [['🗄 Перейти у архів']],
+                      resize_keyboard: true,
+                    },
+                  }
+                );
+                await this.db.collection('matches').updateOne(
+                  updateQuery,
+                  {
+                    $set: this.insertData,
+                  },
+                  {
+                    upsert: true,
+                  }
+                );
+              } catch (error) {
+                console.error('Like message send error: ', error);
+              }
+            }
+          }
+        }
+      } else {
+        await ctx.reply(
+          '❤️ — якщо людина подобається, 👎 — якщо ні, скарга — якщо людина, на твою думку, погано себе веде. Все просто 😉'
+        );
+      }
+    });
+    lookForMatch.on('photo', async (ctx) => {
+      if (this.isLikeMessage) {
+        if (!ctx.session.userForm.isPremium) {
+          await ctx.reply(
+            'Відправка картинок доступна тільки преміум користувачам'
+          );
+        } else {
+          const previousUser = userMatchForms[currentUserIndex];
+          const previousUserId = previousUser.userId;
+          const viewerUserId = ctx.session.userForm.userId;
+          if (previousUserId) {
+            await this.db.collection('viewed_profiles').insertOne({
+              viewerUserId: viewerUserId,
+              viewedUserId: previousUserId,
+              expiryTimestamp: new Date(Date.now() + TIME_TO_VIEW_EXPIRE),
+            });
+            let username = ctx.from?.username;
+            if (username) {
+              username = '@' + username;
+            }
+            const userId = ctx.from!.id;
+            const userLink = `tg://user?id=${userId}`;
+            const mentionMessage =
+              username || `[${ctx.from?.first_name}](${userLink})`;
+            let message = `👀Один краш поставив вподобайку твоєму профілю, щоб переглянути хто це перейди у *архів лайків* 🗄`;
+            await this.db
+              .collection('users')
+              .updateOne(
+                { userId: previousUserId },
+                { $inc: { likesCount: 1 } }
+              );
+            if (this.isLookingForEventMatch) {
+              message = `👀Один краш запрошує тебе кудись, щоб переглянути хто це перейди у *архів лайків* 🗄`;
+            }
+            const caption = ctx.message.caption || '';
+            const photos = ctx.message.photo.sort((a, b) => {
+              const resolutionA = a.width * a.height;
+              const resolutionB = b.width * b.height;
+              return resolutionB - resolutionA;
+            });
+            this.insertData = {
+              senderId: userId,
+              receiverId: previousUserId,
+              senderMentionMessage: mentionMessage,
+              likeMessage: {
+                type: 'photo',
+                content: photos[0].file_id,
+                caption: caption,
+              },
+            };
+            if (ctx.session.eventDetails?.eventId) {
+              this.insertData.eventId = ctx.session.eventDetails.eventId;
+            }
+            const updateQuery: {
+              senderId: number;
+              receiverId: number;
+              eventId?: number;
+            } = {
+              senderId: this.insertData.senderId,
+              receiverId: this.insertData.receiverId,
+            };
+            if (this.insertData.eventId) {
+              updateQuery.eventId = this.insertData.eventId;
+            }
+            this.isLikeMessage = false;
+            await ctx.reply(
+              '✅ Відправили твоє повідомлення',
+              Markup.keyboard([['❤️', '❤️‍🔥', '👎', 'Скарга']]).resize()
+            );
+            currentUserIndex++;
+            this.isProfilesWithLocationEnded = await this.sendUserDetails(
+              userMatchForms as unknown as UserForm[],
+              currentUserIndex,
+              ctx
+            );
+            if (this.isProfilesWithLocationEnded && !this.isProfilesEnded) {
+              userMatchForms = await this.loadProfilesWithoutLocationSpecified(
+                ctx
+              );
+              currentUserIndex = 0;
+              this.isProfilesEnded = await this.sendUserDetails(
+                userMatchForms as unknown as UserForm[],
+                currentUserIndex,
+                ctx
+              );
+            }
+            if (this.isProfilesEnded) {
+              await ctx.reply(
+                'Більше немає людей, які підходять під твої запити',
+                Markup.removeKeyboard()
+              );
+            }
+            try {
+              await ctx.telegram.sendMessage(
+                this.insertData.receiverId,
+                message,
+                {
+                  parse_mode: 'Markdown',
+                  reply_markup: {
+                    keyboard: [['🗄 Перейти у архів']],
+                    resize_keyboard: true,
+                  },
+                }
+              );
+              await this.db.collection('matches').updateOne(
+                updateQuery,
+                {
+                  $set: this.insertData,
+                },
+                {
+                  upsert: true,
+                }
+              );
+            } catch (error) {
+              console.error('Like message send error: ', error);
+            }
+          }
+        }
+      } else {
+        await ctx.reply(
+          '❤️ — якщо людина подобається, 👎 — якщо ні, скарга — якщо людина, на твою думку, погано себе веде. Все просто 😉'
+        );
+      }
+    });
+    lookForMatch.on('video', async (ctx) => {
+      if (this.isLikeMessage) {
+        if (!ctx.session.userForm.isPremium) {
+          await ctx.reply(
+            'Відправка відео доступна тільки преміум користувачам'
+          );
+        } else {
+          if (ctx.message.video.duration > 60) {
+            await ctx.reply(
+              'Відео занадто довге, будь-ласка, відправ відео, яке не довше 60 секунд'
+            );
+          } else {
+            const previousUser = userMatchForms[currentUserIndex];
+            const previousUserId = previousUser.userId;
+            const viewerUserId = ctx.session.userForm.userId;
+            if (previousUserId) {
+              await this.db.collection('viewed_profiles').insertOne({
+                viewerUserId: viewerUserId,
+                viewedUserId: previousUserId,
+                expiryTimestamp: new Date(Date.now() + TIME_TO_VIEW_EXPIRE),
+              });
+              let username = ctx.from?.username;
+              if (username) {
+                username = '@' + username;
+              }
+              const userId = ctx.from!.id;
+              const userLink = `tg://user?id=${userId}`;
+              const mentionMessage =
+                username || `[${ctx.from?.first_name}](${userLink})`;
+              let message = `👀Один краш поставив вподобайку твоєму профілю, щоб переглянути хто це перейди у *архів лайків* 🗄`;
+              await this.db
+                .collection('users')
+                .updateOne(
+                  { userId: previousUserId },
+                  { $inc: { likesCount: 1 } }
+                );
+              if (this.isLookingForEventMatch) {
+                message = `👀Один краш запрошує тебе кудись, щоб переглянути хто це перейди у *архів лайків* 🗄`;
+              }
+              const caption = ctx.message.caption || '';
+              this.insertData = {
+                senderId: userId,
+                receiverId: previousUserId,
+                senderMentionMessage: mentionMessage,
+                likeMessage: {
+                  type: 'video',
+                  content: ctx.message.video.file_id,
+                  caption: caption,
+                },
+              };
+              if (ctx.session.eventDetails?.eventId) {
+                this.insertData.eventId = ctx.session.eventDetails.eventId;
+              }
+              const updateQuery: {
+                senderId: number;
+                receiverId: number;
+                eventId?: number;
+              } = {
+                senderId: this.insertData.senderId,
+                receiverId: this.insertData.receiverId,
+              };
+              if (this.insertData.eventId) {
+                updateQuery.eventId = this.insertData.eventId;
+              }
+              this.isLikeMessage = false;
+              await ctx.reply(
+                '✅ Відправили твоє повідомлення',
+                Markup.keyboard([['❤️', '❤️‍🔥', '👎', 'Скарга']]).resize()
+              );
+              currentUserIndex++;
+              this.isProfilesWithLocationEnded = await this.sendUserDetails(
+                userMatchForms as unknown as UserForm[],
+                currentUserIndex,
+                ctx
+              );
+              if (this.isProfilesWithLocationEnded && !this.isProfilesEnded) {
+                userMatchForms =
+                  await this.loadProfilesWithoutLocationSpecified(ctx);
+                currentUserIndex = 0;
+                this.isProfilesEnded = await this.sendUserDetails(
+                  userMatchForms as unknown as UserForm[],
+                  currentUserIndex,
+                  ctx
+                );
+              }
+              if (this.isProfilesEnded) {
+                await ctx.reply(
+                  'Більше немає людей, які підходять під твої запити',
+                  Markup.removeKeyboard()
+                );
+              }
+              try {
+                await ctx.telegram.sendMessage(
+                  this.insertData.receiverId,
+                  message,
+                  {
+                    parse_mode: 'Markdown',
+                    reply_markup: {
+                      keyboard: [['🗄 Перейти у архів']],
+                      resize_keyboard: true,
+                    },
+                  }
+                );
+                await this.db.collection('matches').updateOne(
+                  updateQuery,
+                  {
+                    $set: this.insertData,
+                  },
+                  {
+                    upsert: true,
+                  }
+                );
+              } catch (error) {
+                console.error('Like message send error: ', error);
+              }
+            }
+          }
+        }
+      } else {
+        await ctx.reply(
+          '❤️ — якщо людина подобається, 👎 — якщо ні, скарга — якщо людина, на твою думку, погано себе веде. Все просто 😉'
+        );
+      }
+    });
+    lookForMatch.on('video_note', async (ctx) => {
+      if (this.isLikeMessage) {
+        if (!ctx.session.userForm.isPremium) {
+          await ctx.reply(
+            'Відправка кружків доступна тільки преміум користувачам'
+          );
+        } else {
+          if (ctx.message.video_note.duration >= 60) {
+            await ctx.reply(
+              'Кружок занадто довгий, будь-ласка, відправ відео, яке не довше 60 секунд'
+            );
+          } else {
+            const previousUser = userMatchForms[currentUserIndex];
+            const previousUserId = previousUser.userId;
+            const viewerUserId = ctx.session.userForm.userId;
+            if (previousUserId) {
+              await this.db.collection('viewed_profiles').insertOne({
+                viewerUserId: viewerUserId,
+                viewedUserId: previousUserId,
+                expiryTimestamp: new Date(Date.now() + TIME_TO_VIEW_EXPIRE),
+              });
+              let username = ctx.from?.username;
+              if (username) {
+                username = '@' + username;
+              }
+              const userId = ctx.from!.id;
+              const userLink = `tg://user?id=${userId}`;
+              const mentionMessage =
+                username || `[${ctx.from?.first_name}](${userLink})`;
+              let message = `👀Один краш поставив вподобайку твоєму профілю, щоб переглянути хто це перейди у *архів лайків* 🗄`;
+              await this.db
+                .collection('users')
+                .updateOne(
+                  { userId: previousUserId },
+                  { $inc: { likesCount: 1 } }
+                );
+              if (this.isLookingForEventMatch) {
+                message = `👀Один краш запрошує тебе кудись, щоб переглянути хто це перейди у *архів лайків* 🗄`;
+              }
+              this.insertData = {
+                senderId: userId,
+                receiverId: previousUserId,
+                senderMentionMessage: mentionMessage,
+                likeMessage: {
+                  type: 'video_note',
+                  content: ctx.message.video_note.file_id,
+                },
+              };
+              if (ctx.session.eventDetails?.eventId) {
+                this.insertData.eventId = ctx.session.eventDetails.eventId;
+              }
+              const updateQuery: {
+                senderId: number;
+                receiverId: number;
+                eventId?: number;
+              } = {
+                senderId: this.insertData.senderId,
+                receiverId: this.insertData.receiverId,
+              };
+              if (this.insertData.eventId) {
+                updateQuery.eventId = this.insertData.eventId;
+              }
+              this.isLikeMessage = false;
+              await ctx.reply(
+                '✅ Відправили твоє повідомлення',
+                Markup.keyboard([['❤️', '❤️‍🔥', '👎', 'Скарга']]).resize()
+              );
+              currentUserIndex++;
+              this.isProfilesWithLocationEnded = await this.sendUserDetails(
+                userMatchForms as unknown as UserForm[],
+                currentUserIndex,
+                ctx
+              );
+              if (this.isProfilesWithLocationEnded && !this.isProfilesEnded) {
+                userMatchForms =
+                  await this.loadProfilesWithoutLocationSpecified(ctx);
+                currentUserIndex = 0;
+                this.isProfilesEnded = await this.sendUserDetails(
+                  userMatchForms as unknown as UserForm[],
+                  currentUserIndex,
+                  ctx
+                );
+              }
+              if (this.isProfilesEnded) {
+                await ctx.reply(
+                  'Більше немає людей, які підходять під твої запити',
+                  Markup.removeKeyboard()
+                );
+              }
+              try {
+                await ctx.telegram.sendMessage(
+                  this.insertData.receiverId,
+                  message,
+                  {
+                    parse_mode: 'Markdown',
+                    reply_markup: {
+                      keyboard: [['🗄 Перейти у архів']],
+                      resize_keyboard: true,
+                    },
+                  }
+                );
+                await this.db.collection('matches').updateOne(
+                  updateQuery,
+                  {
+                    $set: this.insertData,
+                  },
+                  {
+                    upsert: true,
+                  }
+                );
+              } catch (error) {
+                console.error('Like message send error: ', error);
+              }
+            }
+          }
+        }
+      } else {
+        await ctx.reply(
+          '❤️ — якщо людина подобається, 👎 — якщо ні, скарга — якщо людина, на твою думку, погано себе веде. Все просто 😉'
+        );
+      }
+    });
     lookForMatch.on('message', async (ctx) => {
       await ctx.reply(
         '❤️ — якщо людина подобається, 👎 — якщо ні, скарга — якщо людина, на твою думку, погано себе веде. Все просто 😉'
@@ -1753,6 +2618,87 @@ export class SceneGenerator {
     let matchesArray: Match[] = [];
     let isBotEvent = false;
     let isUserEvent = false;
+    const getUserProfile = async (match: Match, ctx: MySceneContext) => {
+      const user = (await this.db.collection('users').findOne({
+        userId: match.senderId,
+      })) as unknown as UserForm;
+      if (user) {
+        let mediaGroup;
+        if (match.likeMessage) {
+          mediaGroup = this.showUserProfile(
+            user,
+            ctx.session.userForm,
+            match.likeMessage
+          );
+        } else {
+          mediaGroup = this.showUserProfile(user, ctx.session.userForm);
+        }
+
+        await ctx.replyWithMediaGroup(mediaGroup);
+        if (user.about?.type === 'voice') {
+          await ctx.replyWithVoice(user.about.content, {
+            caption: '*Про себе:*',
+            parse_mode: 'Markdown',
+          });
+        }
+        if (match.likeMessage && match.likeMessage.type === 'voice') {
+          await ctx.replyWithVoice(match.likeMessage.content, {
+            caption: '*Повідомлення від користувача:*',
+            parse_mode: 'Markdown',
+          });
+        }
+        if (match.likeMessage && match.likeMessage.type === 'photo') {
+          await ctx.replyWithPhoto(match.likeMessage.content, {
+            caption: `*Повідомлення від користувача:* ${match.likeMessage.caption}`,
+            parse_mode: 'Markdown',
+          });
+        }
+        if (match.likeMessage && match.likeMessage.type === 'video') {
+          await ctx.replyWithVideo(match.likeMessage.content, {
+            caption: `*Повідомлення від користувача:* ${match.likeMessage.caption}`,
+            parse_mode: 'Markdown',
+          });
+        }
+        if (match.likeMessage && match.likeMessage.type === 'video_note') {
+          await ctx.reply('*Повідомлення від користувача:*', {
+            parse_mode: 'Markdown',
+          });
+          await ctx.replyWithVideoNote(match.likeMessage.content);
+        }
+      } else {
+        await ctx.reply('Схоже користувач приховав свій профіль');
+      }
+    };
+    async function handleBotEvent(
+      ctx: MySceneContext,
+      event: Event,
+      isUserEvent: boolean
+    ) {
+      if (isUserEvent) {
+        await ctx.reply('👆🏻 Відгукнувся на 👇🏻');
+      } else {
+        await ctx.reply('👆🏻 Запрошує тебе на 👇🏻');
+      }
+      let caption = `*Назва події:* ${event.eventName}\n*Дата та час події:* ${event.date}\n*Місто:* ${event.location}`;
+      if (event.about) {
+        caption = `${caption}\n*Деталі: * ${event.about}`;
+      }
+      if (event.mediaIds && event.mediaIds.length > 0) {
+        const mediaGroup: MediaGroup = event.mediaIds.map(
+          (mediaObj: { type: string; id: string }, index: number) => ({
+            type: mediaObj.type as 'document',
+            media: mediaObj.id,
+            caption: index === 0 ? caption : undefined,
+            parse_mode: index === 0 ? 'Markdown' : undefined,
+          })
+        );
+        await ctx.replyWithMediaGroup(mediaGroup);
+      } else {
+        await ctx.reply(caption, {
+          parse_mode: 'Markdown',
+        });
+      }
+    }
     likeArchive.enter(async (ctx) => {
       likeMatches = [];
       botEventMatches = [];
@@ -1760,48 +2706,58 @@ export class SceneGenerator {
       matchesArray = [];
       if (!this.isConnectionOpened) {
         await this.client.connect();
-      }
-      const userForm = this.getUserFormDataFromDatabase(ctx.from!.id);
-      if (!ctx.session.userForm) {
+        const userForm = await this.getUserFormDataFromDatabase(ctx.from!.id);
         ctx.session.userForm = new UserFormModel({});
+        Object.assign(ctx.session.userForm, userForm);
+      }
+      if (!ctx.session.userForm?.userId) {
+        const userForm = await this.getUserFormDataFromDatabase(ctx.from!.id);
+        ctx.session.userForm = new UserFormModel({});
+        Object.assign(ctx.session.userForm, userForm);
       }
       if (!ctx.session.eventDetails) {
         ctx.session.eventDetails = { lookingFor: '', eventId: 0 };
       }
-      Object.assign(ctx.session.userForm, userForm);
       matches = (await this.db
         .collection('matches')
         .find({ receiverId: ctx.from!.id })
         .toArray()) as unknown as Match[];
-      if (matches.length > 0) {
-        matches.forEach((match) => {
-          if (!match.eventId && !match.isUserEvent) {
-            likeMatches.push(match);
-          } else if (match.eventId && !match.isUserEvent) {
-            botEventMatches.push(match);
-          } else if (match.eventId && match.isUserEvent) {
-            userEventMatches.push(match);
-          }
-        });
-        const keyboard = [];
-        if (likeMatches.length > 0) {
-          keyboard.push('💝');
+
+      matches.forEach((match) => {
+        if (!match.eventId && !match.isUserEvent) {
+          likeMatches.push(match);
+        } else if (match.eventId && !match.isUserEvent) {
+          botEventMatches.push(match);
+        } else if (match.eventId && match.isUserEvent) {
+          userEventMatches.push(match);
         }
-        if (botEventMatches.length > 0) {
-          keyboard.push('🎟️');
+      });
+      const keyboard = [];
+      if (likeMatches.length > 0) {
+        keyboard.push('💝');
+      }
+      if (botEventMatches.length > 0) {
+        keyboard.push('🎟️');
+      }
+      if (userEventMatches.length > 0) {
+        keyboard.push('💌');
+      }
+      await ctx.reply(
+        `💝 Кількіть твоїх вподобайок — *${likeMatches.length}*\n🎟️ Кількість запрошень на подію — *${botEventMatches.length}*\n💌 Відгукнулись на твоє запрошення — *${userEventMatches.length}*`,
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            keyboard: [keyboard],
+            resize_keyboard: true,
+          },
         }
-        if (userEventMatches.length > 0) {
-          keyboard.push('💌');
-        }
+      );
+      if (keyboard.length < 1) {
         await ctx.reply(
-          `💝 Кількіть твоїх вподобайок — *${likeMatches.length}*\n🎟️ Кількість запрошень на подію — *${botEventMatches.length}*\n💌 Відгукнулись на твоє запрошення — *${userEventMatches.length}*`,
-          {
-            parse_mode: 'Markdown',
-            reply_markup: {
-              keyboard: [keyboard],
-              resize_keyboard: true,
-            },
-          }
+          `Вподобайок поки немає\nМожеш розпочати пошук або переглянути свій профіль\n👫 — Розпочати звичайний пошук\n👤 — Переглянути свій профіль`,
+          Markup.keyboard([['👫', '👤']])
+            .oneTime()
+            .resize()
         );
       }
     });
@@ -1810,6 +2766,7 @@ export class SceneGenerator {
       isBotEvent = false;
       isUserEvent = false;
       if (matchesArray.length < 1) {
+        await ctx.reply('Вподобайок поки немає');
         return;
       }
       await ctx.reply('Дивимось хто поставив тобі вподобайку... ❤️', {
@@ -1819,29 +2776,16 @@ export class SceneGenerator {
           resize_keyboard: true,
         },
       });
-      const user = (await this.db.collection('users').findOne({
-        userId: matchesArray[0].senderId,
-      })) as unknown as UserForm;
-      if (user) {
-        const mediaGroup = this.showUserProfile(
-          user,
-          ctx.session.userForm.isPremium
-        );
-        await ctx.replyWithMediaGroup(mediaGroup);
-        if (user.about?.type === 'voice') {
-          await ctx.replyWithVoice(user.about.content, {
-            caption: '*Про себе:*',
-            parse_mode: 'Markdown',
-          });
-        }
-      } else {
-        await ctx.reply('Схоже користувач приховав свій профіль');
-      }
+      await getUserProfile(matchesArray[0], ctx);
     });
     likeArchive.hears('🎟️', async (ctx) => {
       matchesArray = botEventMatches;
       isBotEvent = true;
       isUserEvent = false;
+      if (matchesArray.length < 1) {
+        await ctx.reply('Вподобайок поки немає');
+        return;
+      }
       await ctx.reply('Дивимось хто запросив тебе на подію... 🎟️', {
         parse_mode: 'Markdown',
         reply_markup: {
@@ -1849,52 +2793,24 @@ export class SceneGenerator {
           resize_keyboard: true,
         },
       });
-      const user = (await this.db.collection('users').findOne({
-        userId: matchesArray[0].senderId,
-      })) as unknown as UserForm;
-      const event = await this.db
+      await getUserProfile(matchesArray[0], ctx);
+      const event = (await this.db
         .collection('bot_events')
-        .findOne({ eventId: matchesArray[0].eventId });
-      if (user && event) {
-        const mediaGroup = this.showUserProfile(
-          user,
-          ctx.session.userForm.isPremium
-        );
-        await ctx.replyWithMediaGroup(mediaGroup);
-        if (user.about?.type === 'voice') {
-          await ctx.replyWithVoice(user.about.content, {
-            caption: '*Про себе:*',
-            parse_mode: 'Markdown',
-          });
-        }
-        await ctx.reply('👆🏻 Запрошує тебе на 👇🏻');
-        let caption = `*Назва події:* ${event.eventName}\n*Дата та час події:* ${event.date}\n*Місто:* ${event.location}`;
-        if (event.about) {
-          caption = `${caption}\n*Деталі: * ${event.about}`;
-        }
-        if (event.mediaIds && event.mediaIds.length > 0) {
-          const mediaGroup: MediaGroup = event.mediaIds.map(
-            (mediaObj: { type: string; id: string }, index: number) => ({
-              type: mediaObj.type as 'document',
-              media: mediaObj.id,
-              caption: index === 0 ? caption : undefined,
-              parse_mode: index === 0 ? 'Markdown' : undefined,
-            })
-          );
-          await ctx.replyWithMediaGroup(mediaGroup);
-        } else {
-          await ctx.reply(caption, {
-            parse_mode: 'Markdown',
-          });
-        }
+        .findOne({ eventId: matchesArray[0].eventId })) as unknown as Event;
+      if (event) {
+        await handleBotEvent(ctx, event, false);
       } else {
-        await ctx.reply('Схоже користувач приховав свій профіль');
+        ctx.reply('Схоже іцініатор видалив цю подію');
       }
     });
     likeArchive.hears('💌', async (ctx) => {
       matchesArray = userEventMatches;
       isBotEvent = false;
       isUserEvent = true;
+      if (matchesArray.length < 1) {
+        await ctx.reply('Вподобайок поки немає');
+        return;
+      }
       await ctx.reply('Дивимось хто відгукнувся на твої події... 💌', {
         parse_mode: 'Markdown',
         reply_markup: {
@@ -1902,42 +2818,29 @@ export class SceneGenerator {
           resize_keyboard: true,
         },
       });
-      const user = (await this.db.collection('users').findOne({
-        userId: matchesArray[0].senderId,
-      })) as unknown as UserForm;
+      await getUserProfile(matchesArray[0], ctx);
+
       let eventId: number = NaN;
       if (matchesArray[0].eventId) {
         eventId = matchesArray[0].eventId as number;
       }
-      const event = await this.getEventFromDatabase(ctx.from.id, eventId);
-      if (user && event) {
-        const mediaGroup = this.showUserProfile(
-          user,
-          ctx.session.userForm.isPremium
-        );
-        await ctx.replyWithMediaGroup(mediaGroup);
-        if (user.about?.type === 'voice') {
-          await ctx.replyWithVoice(user.about.content, {
-            caption: '*Про себе:*',
-            parse_mode: 'Markdown',
-          });
-        }
-        await ctx.reply('👆🏻 Відгукнувся на 👇🏻');
-        let caption = `*Назва події:* ${event.eventName}\n*Дата та час події:* ${event.date}\n*Місто:* ${event.location}`;
-        if (event.about) {
-          caption = `${caption}\n*Деталі: * ${event.about}`;
-        }
-        await ctx.reply(caption, {
-          parse_mode: 'Markdown',
-        });
+
+      const event = (await this.getEventFromDatabase(
+        ctx.from.id,
+        eventId
+      )) as unknown as Event;
+
+      if (event) {
+        await handleBotEvent(ctx, event, true);
       } else {
-        await ctx.reply('Схоже що ініціатор видалив цю подію');
+        ctx.reply('Схоже іцініатор видалив цю подію');
       }
     });
     likeArchive.hears('❤️', async (ctx) => {
+      const senderUser = await this.getUserFormDataFromDatabase(matchesArray[0].senderId) as unknown as UserForm
       const currentUser = this.showUserProfile(
         ctx.session.userForm,
-        ctx.session.userForm.isPremium
+        senderUser
       );
       let username = ctx.from?.username;
       if (username) {
@@ -1949,13 +2852,29 @@ export class SceneGenerator {
         username || `[${ctx.from?.first_name}](${userLink})`;
       try {
         await ctx.reply(
-          `Бажаємо весело провести час\n*Посилання на користувача:* ${
-            matchesArray[0].senderMentionMessage
-          }`,
+          `Бажаємо весело провести час\n*Посилання на користувача:* ${matchesArray[0].senderMentionMessage}`,
           {
             parse_mode: 'Markdown',
           }
         );
+        await this.db
+          .collection('users')
+          .updateOne(
+            { userId: matchesArray[0].senderId },
+            { $inc: { likesCount: 1 } }
+          );
+        await this.db.collection('matches').deleteMany({
+          $or: [
+            {
+              senderId: ctx.session.userForm.userId,
+              receiverId: matchesArray[0].senderId,
+            },
+            {
+              senderId: matchesArray[0].senderId,
+              receiverId: ctx.session.userForm.userId,
+            },
+          ],
+        });
         await ctx.telegram.sendMediaGroup(
           matchesArray[0].senderId,
           currentUser
@@ -1974,34 +2893,12 @@ export class SceneGenerator {
         if (isBotEvent || isUserEvent) {
           caption = `Хтось відгукнувся на ваше запрошення. Бажаємо весело провести час\nПосилання на користувача: ${mentionMessage}`;
         }
-        await ctx.telegram.sendMessage(
-          matchesArray[0].senderId,
-          caption,
-          {
-            parse_mode: 'Markdown',
-          }
-        );
+        await ctx.telegram.sendMessage(matchesArray[0].senderId, caption, {
+          parse_mode: 'Markdown',
+        });
       } catch (error) {
         console.error('Like archive error: ', error);
       }
-      await this.db
-        .collection('users')
-        .updateOne(
-          { userId: matchesArray[0].senderId },
-          { $inc: { likesCount: 1 } }
-        );
-      await this.db.collection('matches').deleteMany({
-        $or: [
-          {
-            senderId: ctx.session.userForm.userId,
-            receiverId: matchesArray[0].senderId,
-          },
-          {
-            senderId: matchesArray[0].senderId,
-            receiverId: ctx.session.userForm.userId,
-          },
-        ],
-      });
       matchesArray.splice(0, 1);
       if (matchesArray[0]) {
         const user = (await this.db.collection('users').findOne({
@@ -2014,16 +2911,58 @@ export class SceneGenerator {
             .findOne({ eventId: matchesArray[0].eventId });
         }
         if (user) {
-          const mediaGroup = this.showUserProfile(
-            user,
-            ctx.session.userForm.isPremium
-          );
+          let mediaGroup;
+          if (matchesArray[0].likeMessage) {
+            mediaGroup = this.showUserProfile(
+              user,
+              ctx.session.userForm,
+              matchesArray[0].likeMessage
+            );
+          } else {
+            mediaGroup = this.showUserProfile(user, ctx.session.userForm);
+          }
           await ctx.replyWithMediaGroup(mediaGroup);
           if (user.about?.type === 'voice') {
             await ctx.replyWithVoice(user.about.content, {
               caption: '*Про себе:*',
               parse_mode: 'Markdown',
             });
+          }
+          if (
+            matchesArray[0].likeMessage &&
+            matchesArray[0].likeMessage.type === 'voice'
+          ) {
+            await ctx.replyWithVoice(matchesArray[0].likeMessage.content, {
+              caption: '*Повідомлення від користувача:*',
+              parse_mode: 'Markdown',
+            });
+          }
+          if (
+            matchesArray[0].likeMessage &&
+            matchesArray[0].likeMessage.type === 'photo'
+          ) {
+            await ctx.replyWithPhoto(matchesArray[0].likeMessage.content, {
+              caption: `*Повідомлення від користувача:* ${matchesArray[0].likeMessage.caption}`,
+              parse_mode: 'Markdown',
+            });
+          }
+          if (
+            matchesArray[0].likeMessage &&
+            matchesArray[0].likeMessage.type === 'video'
+          ) {
+            await ctx.replyWithVideo(matchesArray[0].likeMessage.content, {
+              caption: `*Повідомлення від користувача:* ${matchesArray[0].likeMessage.caption}`,
+              parse_mode: 'Markdown',
+            });
+          }
+          if (
+            matchesArray[0].likeMessage &&
+            matchesArray[0].likeMessage.type === 'video_note'
+          ) {
+            await ctx.reply('*Повідомлення від користувача:*', {
+              parse_mode: 'Markdown',
+            });
+            await ctx.replyWithVideoNote(matchesArray[0].likeMessage.content);
           }
           if (isBotEvent && event) {
             await ctx.reply('👆🏻 Запрошує тебе на 👇🏻');
@@ -2058,7 +2997,11 @@ export class SceneGenerator {
           }
         }
       } else {
-        if (likeMatches.length > 0 || botEventMatches.length > 0 || userEventMatches.length > 0) {
+        if (
+          likeMatches.length > 0 ||
+          botEventMatches.length > 0 ||
+          userEventMatches.length > 0
+        ) {
           const keyboard = [];
           if (likeMatches.length > 0) {
             keyboard.push('💝');
@@ -2091,6 +3034,24 @@ export class SceneGenerator {
     });
     likeArchive.hears('👎', async (ctx) => {
       try {
+        await this.db
+          .collection('users')
+          .updateOne(
+            { userId: matchesArray[0].senderId },
+            { $inc: { dislikesCount: 1 } }
+          );
+        await this.db.collection('matches').deleteMany({
+          $or: [
+            {
+              senderId: ctx.session.userForm.userId,
+              receiverId: matchesArray[0].senderId,
+            },
+            {
+              senderId: matchesArray[0].senderId,
+              receiverId: ctx.session.userForm.userId,
+            },
+          ],
+        });
         matchesArray.splice(0, 1);
         if (matchesArray[0]) {
           const user = (await this.db.collection('users').findOne({
@@ -2103,16 +3064,58 @@ export class SceneGenerator {
               .findOne({ eventId: matchesArray[0].eventId });
           }
           if (user) {
-            const mediaGroup = this.showUserProfile(
-              user,
-              ctx.session.userForm.isPremium
-            );
+            let mediaGroup;
+            if (matchesArray[0].likeMessage) {
+              mediaGroup = this.showUserProfile(
+                user,
+                ctx.session.userForm,
+                matchesArray[0].likeMessage
+              );
+            } else {
+              mediaGroup = this.showUserProfile(user, ctx.session.userForm);
+            }
             await ctx.replyWithMediaGroup(mediaGroup);
             if (user.about?.type === 'voice') {
               await ctx.replyWithVoice(user.about.content, {
                 caption: '*Про себе:*',
                 parse_mode: 'Markdown',
               });
+            }
+            if (
+              matchesArray[0].likeMessage &&
+              matchesArray[0].likeMessage.type === 'voice'
+            ) {
+              await ctx.replyWithVoice(matchesArray[0].likeMessage.content, {
+                caption: '*Повідомлення від користувача:*',
+                parse_mode: 'Markdown',
+              });
+            }
+            if (
+              matchesArray[0].likeMessage &&
+              matchesArray[0].likeMessage.type === 'photo'
+            ) {
+              await ctx.replyWithPhoto(matchesArray[0].likeMessage.content, {
+                caption: `*Повідомлення від користувача:* ${matchesArray[0].likeMessage.caption}`,
+                parse_mode: 'Markdown',
+              });
+            }
+            if (
+              matchesArray[0].likeMessage &&
+              matchesArray[0].likeMessage.type === 'video'
+            ) {
+              await ctx.replyWithVideo(matchesArray[0].likeMessage.content, {
+                caption: `*Повідомлення від користувача:* ${matchesArray[0].likeMessage.caption}`,
+                parse_mode: 'Markdown',
+              });
+            }
+            if (
+              matchesArray[0].likeMessage &&
+              matchesArray[0].likeMessage.type === 'video_note'
+            ) {
+              await ctx.reply('*Повідомлення від користувача:*', {
+                parse_mode: 'Markdown',
+              });
+              await ctx.replyWithVideoNote(matchesArray[0].likeMessage.content);
             }
             if (isBotEvent && event) {
               await ctx.reply('👆🏻 Запрошує тебе на 👇🏻');
@@ -2135,7 +3138,7 @@ export class SceneGenerator {
                   parse_mode: 'Markdown',
                 });
               }
-            }  else if (isUserEvent && event) {
+            } else if (isUserEvent && event) {
               await ctx.reply('👆🏻 Відгукнувся на  👇🏻');
               let caption = `*Назва події:* ${event.eventName}\n*Дата та час події:* ${event.date}\n*Місто:* ${event.location}`;
               if (event.about) {
@@ -2154,7 +3157,11 @@ export class SceneGenerator {
             );
           }
         } else {
-         if (likeMatches.length > 0 || botEventMatches.length > 0 || userEventMatches.length > 0) {
+          if (
+            likeMatches.length > 0 ||
+            botEventMatches.length > 0 ||
+            userEventMatches.length > 0
+          ) {
             const keyboard = [];
             if (likeMatches.length > 0) {
               keyboard.push('💝');
@@ -2806,7 +3813,6 @@ ${complaintsList}`;
   async saveUserFormToDatabase(userForm: UserForm) {
     try {
       const userFormData = new UserFormModel<UserForm>(userForm);
-
       const user = await this.db
         .collection('users')
         .findOne({ userId: userForm.userId });
@@ -2822,6 +3828,8 @@ ${complaintsList}`;
               lookingFor: userForm.lookingFor,
               age: userForm.age,
               about: userForm.about,
+              socialLinks: userForm.socialLinks,
+              coordinates: userForm.coordinates,
               actualLocation: userForm.actualLocation,
               location: userForm.location,
               mediaIds: userForm.mediaIds,
@@ -2885,12 +3893,14 @@ ${complaintsList}`;
       }
     );
   }
-  async getEventsFromDatabase(userId: number, userGender: string) {
+  async getEventsFromDatabase(userId: number, userGender: string, userLocation: string) {
     try {
+      const regex = new RegExp(userLocation, 'i');
       const events = await this.db
         .collection('events')
         .find({
           userId: { $ne: userId },
+          location: { $regex: regex },
           lookingFor: { $in: [userGender, 'both'] },
         })
         .toArray();
@@ -3043,12 +4053,36 @@ ${complaintsList}`;
       if (user.about?.type === 'text') {
         caption = caption + `\n\n*Про себе:* ${user.about.content}`;
       }
+      if (ctx.session.userForm.coordinates && user.coordinates) {
+        let unit = 'км';
+        let distance = this.calculateDistance(
+          ctx.session.userForm.coordinates.latitude,
+          ctx.session.userForm.coordinates.longitude,
+          user.coordinates.latitude,
+          user.coordinates.longitude
+        );
+        if (distance < 1) {
+          distance = Math.round(distance * 10) * 100;
+          unit = 'м';
+        } else {
+          distance = Math.round(distance);
+        }
+        caption = caption + `\n*${distance}${unit}* від вас`;
+      }
       if (ctx.session.userForm.isPremium) {
         caption =
           caption +
           (!user.isPremium || (user.isPremium && user.showLikesCount)
             ? `\n\n*❤️ — ${user.likesCount ?? 0}*`
             : '');
+      }
+      if (user.socialLinks && user.socialLinks.length > 0) {
+        let message = '';
+        for (const link of user.socialLinks) {
+          message = message ? message + ' | ' : message + '';
+          message = message + link;
+        }
+        caption = caption + '\n\n' + message;
       }
       const mediaGroup: MediaGroup = user.mediaIds.map(
         (mediaObj: { type: string; id: string }, index: number) => ({
@@ -3071,7 +4105,11 @@ ${complaintsList}`;
     }
   }
 
-  showUserProfile(userForm: UserForm, isUserPremium: boolean): MediaGroup {
+  showUserProfile(
+    userForm: UserForm,
+    currentUser: UserForm,
+    likeMessage?: { type: string; content: string }
+  ): MediaGroup {
     let caption =
       (userForm.isPremium && userForm.showPremiumLabel
         ? `⭐️ *Premium Crush*\n\n`
@@ -3082,12 +4120,40 @@ ${complaintsList}`;
     if (userForm.about?.type === 'text') {
       caption = caption + `\n\n*Про себе:* ${userForm.about.content}`;
     }
-    if (isUserPremium) {
+    if (currentUser.coordinates && userForm.coordinates) {
+      let unit = 'км';
+      let distance = this.calculateDistance(
+        currentUser.coordinates.latitude,
+        currentUser.coordinates.longitude,
+        userForm.coordinates.latitude,
+        userForm.coordinates.longitude
+      );
+      if (distance < 1) {
+        distance = Math.round(distance * 10) * 100;
+        unit = 'м';
+      } else {
+        distance = Math.round(distance);
+      }
+      caption = caption + `\n*${distance}${unit}* від вас`;
+    }
+    if (currentUser.isPremium) {
       caption =
         caption +
         (!userForm.isPremium || (userForm.isPremium && userForm.showLikesCount)
           ? `\n\n*❤️ — ${userForm.likesCount ?? 0}*`
           : '');
+    }
+    if (likeMessage && likeMessage.type === 'text') {
+      caption =
+        caption + '\n' + '*💌 Повідомлення від користувача: *' + likeMessage.content;
+    }
+    if (userForm.socialLinks && userForm.socialLinks.length > 0) {
+      let message = '';
+      for (const link of userForm.socialLinks) {
+        message = message ? message + ' | ' : message + '';
+        message = message + link;
+      }
+      caption = caption + '\n\n' + message;
     }
     const mediaGroup: MediaGroup = userForm.mediaIds.map(
       (mediaObj: { type: string; id: string }, index: number) => ({
@@ -3109,7 +4175,7 @@ ${complaintsList}`;
       )}\n*Дата та час події:* ${event.date.replace(
         /([_*[\]()~`>#+=|{}.!-])/g,
         '\\$1'
-      )}`;
+      )}\n*Місто:* ${event.location?.replace(/([_*[\]()~`>#+=|{}.!-])/g, '\\$1')}`;
       const inlineKeyboardMarkup = Markup.inlineKeyboard([
         Markup.button.callback(
           '✅ Хочу піти',
@@ -3117,7 +4183,7 @@ ${complaintsList}`;
         ),
         Markup.button.callback('❌ Наступна подія', `nextEvent`),
       ]);
-
+  
       if (event.about) {
         await ctx.replyWithMarkdownV2(
           `${message}\n*Деталі:* ${event.about.replace(
@@ -3136,6 +4202,7 @@ ${complaintsList}`;
       );
     }
   }
+  
 
   async showBotEvent(
     events: Event[],
@@ -3179,21 +4246,30 @@ ${complaintsList}`;
   ) {
     const event = events[currentIndex];
     if (event) {
-      const message = `Назва події: ${event.eventName}\nДата та час події: ${event.date}`;
+      const message = `*Назва події:* ${event.eventName.replace(
+        /([_*[\]()~`>#+=|{}.!-])/g,
+        '\\$1'
+      )}\n*Дата та час події:* ${event.date.replace(
+        /([_*[\]()~`>#+=|{}.!-])/g,
+        '\\$1'
+      )}\n*Місто:* ${event.location.replace(
+        /([_*[\]()~`>#+=|{}.!-])/g,
+        '\\$1'
+      )}`;
       const inlineKeyboardMarkup = Markup.inlineKeyboard([
         Markup.button.callback(
           '❌ Видалити подію',
           `deleteEvent:${event.userId}`
         ),
       ]);
-
+  
       if (event.about) {
-        await ctx.reply(
-          `${message}\nДеталі: ${event.about}`,
+        await ctx.replyWithMarkdownV2(
+          `${message}\n*Деталі:* ${event.about}`,
           inlineKeyboardMarkup
         );
       } else {
-        await ctx.reply(message, inlineKeyboardMarkup);
+        await ctx.replyWithMarkdownV2(message, inlineKeyboardMarkup);
       }
     } else {
       await ctx.reply(
@@ -3201,5 +4277,26 @@ ${complaintsList}`;
         Markup.removeKeyboard()
       );
     }
+  }
+  calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
+    const radLat1 = (Math.PI * lat1) / 180;
+    const radLon1 = (Math.PI * lon1) / 180;
+    const radLat2 = (Math.PI * lat2) / 180;
+    const radLon2 = (Math.PI * lon2) / 180;
+
+    const earthRadius = 6371;
+
+    const dLat = radLat2 - radLat1;
+    const dLon = radLon2 - radLon1;
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(radLat1) *
+        Math.cos(radLat2) *
+        Math.sin(dLon / 2) *
+        Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    const distance = earthRadius * c;
+
+    return distance;
   }
 }

@@ -18,9 +18,17 @@ const userFormSchema = new mongoose.Schema({
     required: true,
   },
   about: Schema.Types.Mixed,
+  socialLinks: {
+    type: [String],
+    default: [],
+  },
   lookingFor: {
     type: String,
     required: true,
+  },
+  coordinates: {
+    latitude: { type: Number, required: true },
+    longitude: { type: Number, required: true },
   },
   location: {
     type: String,
@@ -79,20 +87,20 @@ const userFormSchema = new mongoose.Schema({
   },
   lastActive: {
     type: String,
-    required: true
+    required: true,
   },
   registrationDate: {
     type: String,
-    required: true
+    required: true,
   },
   likesCount: {
     type: Number,
-    required: true
+    required: true,
   },
   dislikesCount: {
     type: Number,
-    required: true
-  }
+    required: true,
+  },
 });
 
 export const UserFormModel = mongoose.model('UserForm', userFormSchema);

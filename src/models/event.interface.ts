@@ -5,7 +5,7 @@ export interface Event  {
     date: string,
     about: string | undefined,
     lookingFor: string,
-    location?: string,
+    location: string,
     mediaIds?: {
         type: string;
         id: string;

@@ -5,9 +5,14 @@ export interface UserForm {
   lookingFor: string;
   age: number;
   about?: {
-    type: string,
-    content: string
-  }
+    type: string;
+    content: string;
+  };
+  socialLinks?: string[];
+  coordinates?: {
+    latitude: number;
+    longitude: number;
+  };
   location: string;
   actualLocation:
     | {
@@ -28,5 +33,5 @@ export interface UserForm {
   lastActive: string;
   likesCount: number;
   dislikesCount: number;
-  registrationDate:string
+  registrationDate: string;
 }
