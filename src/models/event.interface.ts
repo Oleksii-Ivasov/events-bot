@@ -3,6 +3,8 @@ export interface Event  {
     eventId: number,
     eventName: string,
     date: string,
+    lookingForMinAge: number,
+    lookingForMaxAge: number,
     about: string | undefined,
     lookingFor: string,
     location: string,
@@ -10,5 +12,4 @@ export interface Event  {
         type: string;
         id: string;
       }[];
-    //ageRange: string
 }

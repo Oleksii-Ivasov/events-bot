@@ -9,6 +9,8 @@ const eventSchema = new mongoose.Schema({
     type: String,
     default: undefined,
   },
+  lookingForMinAge: Number,
+  lookingForMaxAge: Number,
   lookingFor: String,
   location: String,
   mediaIds: [

@@ -3,6 +3,8 @@ export interface UserForm {
   username: string;
   gender: string;
   lookingFor: string;
+  lookingForMinAge: number;
+  lookingForMaxAge: number;
   age: number;
   about?: {
     type: string;

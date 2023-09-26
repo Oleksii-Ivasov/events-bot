@@ -54,6 +54,7 @@ class Bot {
       this.sceneGenerator.ageScene(),
       this.sceneGenerator.genderScene(),
       this.sceneGenerator.lookingForScene(),
+      this.sceneGenerator.lookingForAgeScene(),
       this.sceneGenerator.AboutScene(),
       this.sceneGenerator.socialLinksScene(),
       this.sceneGenerator.locationScene(),
@@ -71,6 +72,8 @@ class Bot {
       this.sceneGenerator.likeArchiveScene(),
       this.sceneGenerator.userFormScene(),
       this.sceneGenerator.userFormEditScene(),
+      this.sceneGenerator.profileEditScene(),
+      this.sceneGenerator.lookForMatchEditScene(),
       this.sceneGenerator.donateScene(),
       this.sceneGenerator.helpScene(),
       this.sceneGenerator.moderateScene(),
@@ -191,93 +194,103 @@ class Bot {
       
 Команда crush’а міцно обійняла тебе🫂
       `);
-      await ctx.reply('⬇️⁣')
-    });
-    const regex = /^(.+):(\d+):(.+)$/;
-    this.bot.action(regex, async (ctx) => {
-      const actionType = ctx.match[1];
-      const initiatorUserId = +ctx.match[2];
-      const initiatorUsername = ctx.match[3];
-      // const updatedKeyboard = {
-      //   inline_keyboard: [
-      //     [
-      //       { text: '❤️', callback_data: 'liked', disabled: true },
-      //       { text: '👎', callback_data: 'disliked', disabled: true },
-      //     ],
-      //   ],
-      // };
-      const username = ctx.from?.username;
-      const userLink = `tg://user?id=${ctx.from!.id}`;
-      const mentionMessage = username
-        ? `@${username}`
-        : `[${ctx.from?.first_name}](${userLink})`;
-      try {
-        if (actionType === 'likeEvent' || actionType === 'like') {
-          await client.connect();
-          const db = client.db('cluster0');
-          const user = await db
-            .collection('users')
-            .findOne({ userId: ctx.from!.id });
-
-          if (user) {
-            const commonMessage = `Посилання на профіль ${mentionMessage}`;
-            const userDetails = `🧘🏼*Краш:* ${user.username}, ${user.age}, ${
-              user.location
-            }${user.about ? `, ${user.about}` : ''}`;
-
-            const message =
-              actionType === 'likeEvent'
-                ? `Твій краш прийняв твоє запрошення 😍\n${commonMessage}\n${userDetails}\nОбговори деталі та приємно проведіть цей час 🫶🏻`
-                : `Твій краш відповів тобі взаємністю 😍\n${commonMessage}\n${userDetails}\nБажаю приємно провести час 🫶🏻`;
-
-            await Promise.all([
-              ctx.telegram.sendPhoto(initiatorUserId, user.photoId, {
-                caption: message,
-                parse_mode: 'Markdown',
-              }),
-              ctx.reply(
-                `Посилання на профіль: ${initiatorUsername}\nБажаю весело провести час 👋`,
-                Markup.keyboard([['👫 Звичайний пошук', '🍾 Події']])
-                  .resize()
-                  .oneTime()
-              ),
-              await db.collection('users').updateOne(
-                { userId: user.userId },
-                {
-                  $set: {
-                    lastActive: new Date().toLocaleString(),
-                  },
-                }
-              ),
-              ctx.editMessageReplyMarkup(undefined),
-            ]);
-          }
-        }
-      } catch (error) {
-        console.error('Error sending notification:', error);
-      }
-    });
-    this.bot.action(/dislike(Event)?/, async (ctx) => {
-      const actionType = ctx.match[1] ? 'dislikeEvent' : 'dislike';
-      const message =
-        actionType === 'dislikeEvent' ? 'пропозицію' : 'вподобайку';
-      await ctx.reply(
-        `Ти відхилив ${message}. Наступного разу точно пощастить 🤞🏻`,
-        Markup.keyboard([['👫 Звичайний пошук', '🍾 Події']])
-          .resize()
-          .oneTime()
-      );
       await client.connect();
       const db = client.db('cluster0');
-      await db.collection('users').updateOne(
-        { userId: ctx.from!.id },
-        {
-          $set: {
-            lastActive: new Date().toLocaleString(),
-          },
-        }
-      ),
-        await ctx.editMessageReplyMarkup(undefined);
+      const userForm = await db.collection('users').findOne({userId: ctx.from.id});
+      if (userForm) {
+        await ctx.reply('⬇️⁣')
+      } else {
+        await ctx.reply('⬇️⁣', Markup.keyboard([['👤 Створити профіль']]).oneTime().resize())
+      }
+    });
+    // const regex = /^(.+):(\d+):(.+)$/;
+    // this.bot.action(regex, async (ctx) => {
+    //   const actionType = ctx.match[1];
+    //   const initiatorUserId = +ctx.match[2];
+    //   const initiatorUsername = ctx.match[3];
+    //   // const updatedKeyboard = {
+    //   //   inline_keyboard: [
+    //   //     [
+    //   //       { text: '❤️', callback_data: 'liked', disabled: true },
+    //   //       { text: '👎', callback_data: 'disliked', disabled: true },
+    //   //     ],
+    //   //   ],
+    //   // };
+    //   const username = ctx.from?.username;
+    //   const userLink = `tg://user?id=${ctx.from!.id}`;
+    //   const mentionMessage = username
+    //     ? `@${username}`
+    //     : `[${ctx.from?.first_name}](${userLink})`;
+    //   try {
+    //     if (actionType === 'likeEvent' || actionType === 'like') {
+    //       await client.connect();
+    //       const db = client.db('cluster0');
+    //       const user = await db
+    //         .collection('users')
+    //         .findOne({ userId: ctx.from!.id });
+
+    //       if (user) {
+    //         const commonMessage = `Посилання на профіль ${mentionMessage}`;
+    //         const userDetails = `🧘🏼*Краш:* ${user.username}, ${user.age}, ${
+    //           user.location
+    //         }${user.about ? `, ${user.about}` : ''}`;
+
+    //         const message =
+    //           actionType === 'likeEvent'
+    //             ? `Твій краш прийняв твоє запрошення 😍\n${commonMessage}\n${userDetails}\nОбговори деталі та приємно проведіть цей час 🫶🏻`
+    //             : `Твій краш відповів тобі взаємністю 😍\n${commonMessage}\n${userDetails}\nБажаю приємно провести час 🫶🏻`;
+
+    //         await Promise.all([
+    //           ctx.telegram.sendPhoto(initiatorUserId, user.photoId, {
+    //             caption: message,
+    //             parse_mode: 'Markdown',
+    //           }),
+    //           ctx.reply(
+    //             `Посилання на профіль: ${initiatorUsername}\nБажаю весело провести час 👋`,
+    //             Markup.keyboard([['👫 Звичайний пошук', '🍾 Події']])
+    //               .resize()
+    //               .oneTime()
+    //           ),
+    //           await db.collection('users').updateOne(
+    //             { userId: user.userId },
+    //             {
+    //               $set: {
+    //                 lastActive: new Date().toLocaleString(),
+    //               },
+    //             }
+    //           ),
+    //           ctx.editMessageReplyMarkup(undefined),
+    //         ]);
+    //       }
+    //     }
+    //   } catch (error) {
+    //     console.error('Error sending notification:', error);
+    //   }
+    // });
+    // this.bot.action(/dislike(Event)?/, async (ctx) => {
+    //   const actionType = ctx.match[1] ? 'dislikeEvent' : 'dislike';
+    //   const message =
+    //     actionType === 'dislikeEvent' ? 'пропозицію' : 'вподобайку';
+    //   await ctx.reply(
+    //     `Ти відхилив ${message}. Наступного разу точно пощастить 🤞🏻`,
+    //     Markup.keyboard([['👫 Звичайний пошук', '🍾 Події']])
+    //       .resize()
+    //       .oneTime()
+    //   );
+    //   await client.connect();
+    //   const db = client.db('cluster0');
+    //   await db.collection('users').updateOne(
+    //     { userId: ctx.from!.id },
+    //     {
+    //       $set: {
+    //         lastActive: new Date().toLocaleString(),
+    //       },
+    //     }
+    //   ),
+    //     await ctx.editMessageReplyMarkup(undefined);
+    // });
+    this.bot.hears('👤 Створити профіль', async (ctx) => {
+      await ctx.scene.enter('userform');
     });
     this.bot.hears('👫 Звичайний пошук', async (ctx) => {
       await ctx.scene.enter('lookForMatch');

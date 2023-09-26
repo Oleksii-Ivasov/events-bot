@@ -13,6 +13,8 @@ import crypto from 'crypto';
 import cron from 'node-cron';
 import { MediaGroup } from 'telegraf/typings/telegram-types';
 import { Match } from '../models/match.interface';
+import mongoose from 'mongoose';
+import { KeyboardButton } from 'telegraf/typings/core/types/typegram';
 
 const MAX_LIKES_LIMIT = 10;
 const TIME_TO_VIEW_EXPIRE = 60 * 1000; // 1 minute
@@ -125,8 +127,9 @@ export class SceneGenerator {
     date: '',
     about: undefined,
     lookingFor: '',
-    location: ''
-    //ageRange: '',
+    location: '',
+    lookingForMinAge: NaN,
+    lookingForMaxAge: NaN,
   };
 
   nameScene(): Scenes.BaseScene<MySceneContext> {
@@ -227,31 +230,150 @@ export class SceneGenerator {
     this.addCommands(lookingFor);
     lookingFor.hears('Хлопці', async (ctx) => {
       ctx.session.userForm.lookingFor = 'male';
-      await ctx.scene.enter('name');
+      if (this.isOneTimeChange) {
+        this.isOneTimeChange = false;
+        await this.updateUserPropertyToDatabase(ctx.session.userForm, {
+          lookingFor: ctx.session.userForm.lookingFor,
+        });
+        await ctx.scene.enter('lookForMatchEdit');
+      } else {
+        await ctx.scene.enter('lookingForAge');
+      }
     });
     lookingFor.hears('Дівчата', async (ctx) => {
       ctx.session.userForm.lookingFor = 'female';
-      await ctx.scene.enter('name');
+      if (this.isOneTimeChange) {
+        this.isOneTimeChange = false;
+        await this.updateUserPropertyToDatabase(ctx.session.userForm, {
+          lookingFor: ctx.session.userForm.lookingFor,
+        });
+        await ctx.scene.enter('lookForMatchEdit');
+      } else {
+        await ctx.scene.enter('lookingForAge');
+      }
     });
     lookingFor.hears('Неважливо', async (ctx) => {
       ctx.session.userForm.lookingFor = 'both';
-      await ctx.scene.enter('name');
+      if (this.isOneTimeChange) {
+        this.isOneTimeChange = false;
+        await this.updateUserPropertyToDatabase(ctx.session.userForm, {
+          lookingFor: ctx.session.userForm.lookingFor,
+        });
+        await ctx.scene.enter('lookForMatchEdit');
+      } else {
+        await ctx.scene.enter('lookingForAge');
+      }
     });
     lookingFor.on('message', async (ctx) => {
       await ctx.reply('Обери хто тебе цікавить');
     });
     return lookingFor;
   }
+
+  lookingForAgeScene(): Scenes.BaseScene<MySceneContext> {
+    const lookingForAge = new Scenes.BaseScene<MySceneContext>('lookingForAge');
+    let keyboardButtons:
+      | string[]
+      | (KeyboardButton & { hide?: boolean | undefined })[];
+    lookingForAge.enter(async (ctx) => {
+      keyboardButtons = ['Шукати усіх'];
+      if (
+        ctx.session.userForm.lookingForMinAge &&
+        ctx.session.userForm.lookingForMaxAge
+      ) {
+        const keyboardRange = `${ctx.session.userForm.lookingForMinAge}-${ctx.session.userForm.lookingForMaxAge}`;
+        keyboardButtons.push(keyboardRange);
+      }
+      await ctx.reply(
+        'Тепер вкажи віковий діапазон цікавих тобі людей, наприклад 18-22',
+        Markup.keyboard([keyboardButtons]).oneTime().resize()
+      );
+    });
+    this.addCommands(lookingForAge);
+    lookingForAge.hears('Шукати усіх', async (ctx) => {
+      ctx.session.userForm.lookingForMinAge = 17;
+      ctx.session.userForm.lookingForMaxAge = 99;
+      if (this.isOneTimeChange) {
+        this.isOneTimeChange = false;
+        await this.updateUserPropertyToDatabase(ctx.session.userForm, {
+          lookingForMinAge: ctx.session.userForm.lookingForMinAge,
+          lookingForMaxAge: ctx.session.userForm.lookingForMaxAge,
+        });
+        await this.db
+          .collection('events')
+          .updateMany(
+            { userId: ctx.session.userForm.userId },
+            {
+              $set: {
+                lookingForMinAge: ctx.session.userForm.lookingForMinAge,
+                lookingForMaxAge: ctx.session.userForm.lookingForMaxAge,
+              },
+            },
+            { upsert: true }
+          );
+        await ctx.scene.enter('lookForMatchEdit');
+      } else {
+        await ctx.scene.enter('name');
+      }
+    });
+    lookingForAge.on('text', async (ctx) => {
+      if (/^\d{1,2}-\d{1,2}$/.test(ctx.message.text)) {
+        const [minAge, maxAge] = ctx.message.text.split('-').map(Number);
+        if (minAge >= 17 && maxAge <= 99 && minAge <= maxAge) {
+          ctx.session.userForm.lookingForMinAge = minAge;
+          ctx.session.userForm.lookingForMaxAge = maxAge;
+          if (this.isOneTimeChange) {
+            this.isOneTimeChange = false;
+            await this.updateUserPropertyToDatabase(ctx.session.userForm, {
+              lookingForMinAge: ctx.session.userForm.lookingForMinAge,
+              lookingForMaxAge: ctx.session.userForm.lookingForMaxAge,
+            });
+            await this.db
+              .collection('events')
+              .updateMany(
+                { userId: ctx.session.userForm.userId },
+                {
+                  $set: {
+                    lookingForMinAge: ctx.session.userForm.lookingForMinAge,
+                    lookingForMaxAge: ctx.session.userForm.lookingForMaxAge,
+                  },
+                },
+                { upsert: true }
+              );
+            await ctx.scene.enter('lookForMatchEdit');
+          } else {
+            await ctx.scene.enter('name');
+          }
+        } else {
+          await ctx.reply(
+            'Мінімальний вік не може бути меншим за 17, а також бути меншим за максимальний'
+          );
+        }
+      } else {
+        await ctx.reply(
+          'Неправильний формат. Будь-ласка, використувуй формат як у прикладі: 18-22'
+        );
+      }
+    });
+    lookingForAge.on('message', async (ctx) => {
+      await ctx.reply(
+        'Будь-ласка, вкажи віковий діапазон цікавих тобі людей, наприклад 18-22',
+        Markup.keyboard([keyboardButtons]).oneTime().resize()
+      );
+    });
+    return lookingForAge;
+  }
+
   AboutScene(): Scenes.BaseScene<MySceneContext> {
     const about = new Scenes.BaseScene<MySceneContext>('about');
     about.enter(async (ctx) => {
       const isPremiumUser = ctx.session.userForm.isPremium;
-      const hasAbout = ctx.session.userForm.about !== undefined;
+      const hasAbout = ctx.session.userForm?.about;
       const premiumMessage = isPremiumUser ? ' або запиши голосове' : '';
       const defaultMessage = `Напиши пару слів про себе: що полюбляєш, кого шукаєш${premiumMessage}`;
       const keyboardOptions = hasAbout
-        ? ['Пропустити', 'Залишити як є']
-        : ['Пропустити'];
+        ? ['Не вказувати', 'Залишити як є']
+        : ['Не вказувати'];
       await ctx.reply(
         defaultMessage,
         Markup.keyboard(keyboardOptions).oneTime().resize()
@@ -259,11 +381,24 @@ export class SceneGenerator {
     });
     this.addCommands(about);
     about.hears('Залишити як є', async (ctx) => {
-      await ctx.scene.enter('socialLinks');
+      if (this.isOneTimeChange) {
+        this.isOneTimeChange = false;
+        await ctx.scene.enter('userform');
+      } else {
+        await ctx.scene.enter('socialLinks');
+      }
     });
-    about.hears('Пропустити', async (ctx) => {
+    about.hears('Не вказувати', async (ctx) => {
       ctx.session.userForm.about = undefined;
-      await ctx.scene.enter('socialLinks');
+      if (this.isOneTimeChange) {
+        this.isOneTimeChange = false;
+        await this.updateUserPropertyToDatabase(ctx.session.userForm, {
+          about: ctx.session.userForm.about,
+        });
+        await ctx.scene.enter('userform');
+      } else {
+        await ctx.scene.enter('socialLinks');
+      }
     });
     about.on('voice', async (ctx) => {
       if (!ctx.session.userForm.isPremium) {
@@ -273,7 +408,15 @@ export class SceneGenerator {
           type: 'voice',
           content: ctx.message.voice.file_id,
         };
-        ctx.scene.enter('socialLinks');
+        if (this.isOneTimeChange) {
+          this.isOneTimeChange = false;
+          await this.updateUserPropertyToDatabase(ctx.session.userForm, {
+            about: ctx.session.userForm.about,
+          });
+          await ctx.scene.enter('userform');
+        } else {
+          await ctx.scene.enter('socialLinks');
+        }
       }
     });
     about.on('text', async (ctx) => {
@@ -285,7 +428,15 @@ export class SceneGenerator {
           type: 'text',
           content: userAbout,
         };
-        ctx.scene.enter('socialLinks');
+        if (this.isOneTimeChange) {
+          this.isOneTimeChange = false;
+          await this.updateUserPropertyToDatabase(ctx.session.userForm, {
+            about: ctx.session.userForm.about,
+          });
+          await ctx.scene.enter('userform');
+        } else {
+          await ctx.scene.enter('socialLinks');
+        }
       }
     });
     about.on('message', async (ctx) => {
@@ -321,22 +472,43 @@ export class SceneGenerator {
       if (!tiktok) {
         lowerKeyboard.push('TikTok');
       }
-      upperKeyboard.push('Пропустити');
+      upperKeyboard.push('Не вказувати');
       await ctx.reply(
         'Можеш залишити посилання на свою соцмережу (преміум-користувачі можуть залишати до 2 посилань)',
         Markup.keyboard([upperKeyboard, lowerKeyboard]).oneTime().resize()
       );
     });
-    socialLinks.hears('Пропустити', async (ctx) => {
+    socialLinks.hears('Не вказувати', async (ctx) => {
       ctx.session.userForm.socialLinks = links;
-      await ctx.scene.enter('photo');
+      if (this.isOneTimeChange) {
+        this.isOneTimeChange = false;
+        await this.updateUserPropertyToDatabase(ctx.session.userForm, {
+          socialLinks: ctx.session.userForm.socialLinks,
+        });
+        await ctx.scene.enter('userform');
+      } else {
+        await ctx.scene.enter('photo');
+      }
     });
     socialLinks.hears('Залишити як є', async (ctx) => {
-      await ctx.scene.enter('photo');
+      if (this.isOneTimeChange) {
+        this.isOneTimeChange = false;
+        await ctx.scene.enter('userform');
+      } else {
+        await ctx.scene.enter('photo');
+      }
     });
     socialLinks.hears('Це все, зберегти', async (ctx) => {
       ctx.session.userForm.socialLinks = links;
-      await ctx.scene.enter('photo');
+      if (this.isOneTimeChange) {
+        this.isOneTimeChange = false;
+        await this.updateUserPropertyToDatabase(ctx.session.userForm, {
+          socialLinks: ctx.session.userForm.socialLinks,
+        });
+        await ctx.scene.enter('userform');
+      } else {
+        await ctx.scene.enter('photo');
+      }
     });
     socialLinks.hears('Instagram', async (ctx) => {
       isInstField = true;
@@ -380,14 +552,21 @@ export class SceneGenerator {
           );
         } else {
           ctx.session.userForm.socialLinks = links;
-          await ctx.scene.enter('photo');
+          if (this.isOneTimeChange) {
+            this.isOneTimeChange = false;
+            await this.updateUserPropertyToDatabase(ctx.session.userForm, {
+              socialLinks: ctx.session.userForm.socialLinks,
+            });
+            await ctx.scene.enter('userform');
+          } else {
+            await ctx.scene.enter('photo');
+          }
         }
       }
     });
     socialLinks.on('message', async (ctx) => {
       await ctx.reply(
-        'За бажанням, залиш посилання на свою соцмережу (преміум-користувачі можуть залишати до 3 посилань)',
-        Markup.keyboard(['Пропустити']).oneTime().resize()
+        'За бажанням, залиш посилання на свою соцмережу (преміум-користувачі можуть залишати до 3 посилань)'
       );
     });
     return socialLinks;
@@ -427,7 +606,17 @@ export class SceneGenerator {
         );
         ctx.session.userForm.actualLocation = userLocationName.toLowerCase();
         ctx.session.userForm.location = userLocationName;
-        await ctx.scene.enter('about');
+        if (this.isOneTimeChange) {
+          this.isOneTimeChange = false;
+          await this.updateUserPropertyToDatabase(ctx.session.userForm, {
+            coordinates: ctx.session.userForm.coordinates,
+            location: ctx.session.userForm.location,
+            actualLocation: ctx.session.userForm.actualLocation,
+          });
+          await ctx.scene.enter('userform');
+        } else {
+          await ctx.scene.enter('about');
+        }
       } catch (error) {
         console.error('Location detection error: ', error);
       }
@@ -438,7 +627,12 @@ export class SceneGenerator {
         ctx.session.userForm.actualLocation &&
         ctx.session.userForm.location === ctx.message.text
       ) {
-        await ctx.scene.enter('about');
+        if (this.isOneTimeChange) {
+          this.isOneTimeChange = false;
+          await ctx.scene.enter('userform');
+        } else {
+          await ctx.scene.enter('about');
+        }
       } else {
         const rawData = fs.readFileSync('./UA.json', 'utf8');
         const dataArray = JSON.parse(rawData);
@@ -506,11 +700,31 @@ export class SceneGenerator {
           ctx.session.userForm.actualLocation =
             matchingCities[0].item.original.toLowerCase();
           ctx.session.userForm.location = ctx.message.text;
-          await ctx.scene.enter('about');
+          if (this.isOneTimeChange) {
+            this.isOneTimeChange = false;
+            await this.updateUserPropertyToDatabase(ctx.session.userForm, {
+              coordinates: ctx.session.userForm.coordinates,
+              location: ctx.session.userForm.location,
+              actualLocation: ctx.session.userForm.actualLocation,
+            });
+            await ctx.scene.enter('userform');
+          } else {
+            await ctx.scene.enter('about');
+          }
         } else {
           ctx.session.userForm.location = ctx.message.text;
           ctx.session.userForm.actualLocation = ctx.message.text.toLowerCase();
-          await ctx.scene.enter('about');
+          if (this.isOneTimeChange) {
+            this.isOneTimeChange = false;
+            await this.updateUserPropertyToDatabase(ctx.session.userForm, {
+              coordinates: ctx.session.userForm.coordinates,
+              location: ctx.session.userForm.location,
+              actualLocation: ctx.session.userForm.actualLocation,
+            });
+            await ctx.scene.enter('userform');
+          } else {
+            await ctx.scene.enter('about');
+          }
         }
       }
     });
@@ -595,6 +809,18 @@ export class SceneGenerator {
         this.isUploaded = true;
         ctx.session.userForm.mediaIds = this.mediaIds;
         await this.saveUserFormToDatabase(ctx.session.userForm);
+        await this.db
+          .collection('events')
+          .updateMany(
+            { userId: ctx.session.userForm.userId },
+            {
+              $set: {
+                lookingForMinAge: ctx.session.userForm.lookingForMinAge,
+                lookingForMaxAge: ctx.session.userForm.lookingForMaxAge,
+              },
+            },
+            { upsert: true }
+          );
         await ctx.scene.enter('userform');
       }
     };
@@ -622,6 +848,18 @@ export class SceneGenerator {
       if (ctx.session.userForm.mediaIds.length > 0) {
         this.isUploaded = true;
         await this.saveUserFormToDatabase(ctx.session.userForm);
+        await this.db
+          .collection('events')
+          .updateMany(
+            { userId: ctx.session.userForm.userId },
+            {
+              $set: {
+                lookingForMinAge: ctx.session.userForm.lookingForMinAge,
+                lookingForMaxAge: ctx.session.userForm.lookingForMaxAge,
+              },
+            },
+            { upsert: true }
+          );
         await ctx.scene.enter('userform');
       }
     });
@@ -649,6 +887,18 @@ export class SceneGenerator {
       this.isUploaded = true;
       ctx.session.userForm.mediaIds = this.mediaIds;
       await this.saveUserFormToDatabase(ctx.session.userForm);
+      await this.db
+        .collection('events')
+        .updateMany(
+          { userId: ctx.session.userForm.userId },
+          {
+            $set: {
+              lookingForMinAge: ctx.session.userForm.lookingForMinAge,
+              lookingForMaxAge: ctx.session.userForm.lookingForMaxAge,
+            },
+          },
+          { upsert: true }
+        );
       await ctx.scene.enter('userform');
     });
     photo.hears('👫 Звичайний пошук', async (ctx) => {
@@ -686,7 +936,7 @@ export class SceneGenerator {
             `*Ім'я:* ${userForm.username}\n*Вік:* ${userForm.age}\n*Місто:* ${userForm.location}`;
 
           if (userForm.about?.type === 'text') {
-            caption = caption + `\n\n*Про себе:* ${userForm.about.content}`;
+            caption = caption + `\n*Про себе:* ${userForm.about.content}`;
           }
           caption =
             caption +
@@ -721,9 +971,8 @@ export class SceneGenerator {
 🆕 — Додати подію
 🎟 — Мої події
 🗄 — Архів лайків
-⭐️ — Преміум налаштування
-❌ — Приховати профіль`,
-            Markup.keyboard([['✍🏻', '🆕', '🎟', '🗄', '⭐️', '❌']])
+⭐️ — Преміум налаштування`,
+            Markup.keyboard([['✍🏻', '🆕', '🎟', '🗄', '⭐️']])
               .oneTime()
               .resize()
           );
@@ -789,40 +1038,6 @@ export class SceneGenerator {
         );
       }
     });
-    userFormScene.hears('❌', async (ctx) => {
-      await ctx.reply(
-        `Після підтвердження, ваша анкета не буде відображатися іншим користувачам.
-      
-Анкета автоматично активується, якщо ви знову розпочнете пошук 👥
-      
-Ви дійсно хочете прибрати свою анкету з пошуку?`,
-        Markup.keyboard([
-          ['✅ Так, прибрати з пошуку', '❌ Ні, повернутись назад'],
-        ]).resize()
-      );
-    });
-    userFormScene.hears('✅ Так, прибрати з пошуку', async (ctx) => {
-      await this.db
-        .collection('users')
-        .updateOne({ userId: ctx.from.id }, { $set: { isActive: false } });
-      await ctx.reply(
-        'Дякуємо за користування нашим ботом. Сподіваємось, що ви чудово провели чаc 🖤',
-        Markup.removeKeyboard()
-      );
-    });
-    userFormScene.hears('❌ Ні, повернутись назад', async (ctx) => {
-      await ctx.reply(
-        `✍🏻 — Редагувати профіль
-🆕 — Додати подію
-🎟 — Мої події
-🗄 — Архів лайків
-⭐️ — Преміум налаштування
-❌ — Приховати профіль`,
-        Markup.keyboard([['✍🏻', '🆕', '🎟', '🗄', '⭐️', '❌']])
-          .oneTime()
-          .resize()
-      );
-    });
     userFormScene.hears('⭐️ Купити преміум', async (ctx) => {
       await ctx.scene.enter('premiumBenefits');
     });
@@ -833,39 +1048,183 @@ export class SceneGenerator {
 🆕 — Додати подію
 🎟 — Мої події
 🗄 — Архів лайків
-⭐️ — Преміум налаштування
-❌ — Приховати профіль`,
-        Markup.keyboard([['✍🏻', '🆕', '🎟', '🗄', '⭐️', '❌']])
+⭐️ — Преміум налаштування`,
+        Markup.keyboard([['✍🏻', '🆕', '🎟', '🗄', '⭐️']])
           .oneTime()
           .resize()
       );
     });
     return userFormScene;
   }
+  private isOneTimeChange = false;
   userFormEditScene(): Scenes.BaseScene<MySceneContext> {
     const userFormEditScene = new Scenes.BaseScene<MySceneContext>(
       'userformEdit'
     );
     userFormEditScene.enter(async (ctx) => {
       await ctx.reply(
-        `1. Заповнити анкету заново
-2. Змінити фото або відео`,
+        `👤 Налаштування анкети
+⚙️ Налаштування параметрів пошуку`,
+        Markup.keyboard([['👤', '⚙️'], ['🔙 Назад']])
+          .oneTime()
+          .resize()
+      );
+    });
+    userFormEditScene.hears('👤', async (ctx) => {
+      await ctx.scene.enter('profileEdit');
+    });
+    userFormEditScene.hears('⚙️', async (ctx) => {
+      await ctx.scene.enter('lookForMatchEdit');
+    });
+    userFormEditScene.hears('🔙 Назад', async (ctx) => {
+      await ctx.scene.enter('userform');
+    });
+    this.addCommands(userFormEditScene);
+    userFormEditScene.on('message', async (ctx) => {
+      await ctx.reply(
+        'Обери що хочеш змінити',
+        Markup.keyboard([['👤', '⚙️']])
+          .oneTime()
+          .resize()
+      );
+    });
+    return userFormEditScene;
+  }
+
+  lookForMatchEditScene(): Scenes.BaseScene<MySceneContext> {
+    const lookForMatchEditScene = new Scenes.BaseScene<MySceneContext>(
+      'lookForMatchEdit'
+    );
+    lookForMatchEditScene.enter(async (ctx) => {
+      let lookingFor = 'і хлопців і дівчат';
+      if (ctx.session.userForm.lookingFor === 'male') {
+        lookingFor = 'хлопця';
+      } else if (ctx.session.userForm.lookingFor === 'female') {
+        lookingFor = 'дівчину';
+      } else {
+        lookingFor = 'і хлопців і дівчат';
+      }
+      let ageRangeMessage = `віком від *${ctx.session.userForm.lookingForMinAge}* до *${ctx.session.userForm.lookingForMaxAge}*`;
+      if (
+        ctx.session.userForm.lookingForMinAge === 17 &&
+        ctx.session.userForm.lookingForMaxAge === 99
+      ) {
+        ageRangeMessage = '*будь\\-якого віку*';
+      }
+      await ctx.replyWithMarkdownV2(
+        `Наразі ти шукаєш *${lookingFor.replace(
+          /([_*[\]()~`>#+=|{}.!-])/g,
+          '\\$1'
+        )}* ${ageRangeMessage}\n\n1\\. Змінити стать, яку шукаю\n2\\. Змінити віковий діапазон`,
+        Markup.keyboard([['1', '2'], ['🔙 Назад']])
+          .resize()
+          .oneTime()
+      );
+    });
+    lookForMatchEditScene.hears('1', async (ctx) => {
+      this.isOneTimeChange = true;
+      await ctx.scene.enter('lookingFor');
+    });
+    lookForMatchEditScene.hears('2', async (ctx) => {
+      this.isOneTimeChange = true;
+      await ctx.scene.enter('lookingForAge');
+    });
+    lookForMatchEditScene.hears('🔙 Назад', async (ctx) => {
+      await ctx.scene.enter('userformEdit');
+    });
+    this.addCommands(lookForMatchEditScene);
+    lookForMatchEditScene.on('message', async (ctx) => {
+      await ctx.reply(
+        'Обери що хочеш змінити',
         Markup.keyboard([['1', '2']])
           .resize()
           .oneTime()
       );
-      userFormEditScene.hears('1', async (ctx) => {
-        await ctx.scene.enter('gender');
-      });
-      userFormEditScene.hears('2', async (ctx) => {
-        await ctx.scene.enter('photo');
-      });
-      userFormEditScene.on('message', async (ctx) => {
-        await ctx.reply('👇🏻', Markup.keyboard([['1', '2']]).resize());
-      });
     });
-    this.addCommands(userFormEditScene);
-    return userFormEditScene;
+    return lookForMatchEditScene;
+  }
+  profileEditScene(): Scenes.BaseScene<MySceneContext> {
+    const profileEditScene = new Scenes.BaseScene<MySceneContext>(
+      'profileEdit'
+    );
+    profileEditScene.enter(async (ctx) => {
+      await ctx.reply(
+        `1. Заповнити анкету заново
+2. Змінити фото або відео
+3. Змінити про себе
+4. Змінити посилання на соцмережі
+5. Змінити місто
+6. Приховати профіль`,
+        Markup.keyboard([['1', '2', '3', '4', '5', '6'], ['🔙 Назад']])
+          .resize()
+          .oneTime()
+      );
+    });
+    profileEditScene.hears('1', async (ctx) => {
+      await ctx.scene.enter('gender');
+    });
+    profileEditScene.hears('2', async (ctx) => {
+      await ctx.scene.enter('photo');
+    });
+    profileEditScene.hears('3', async (ctx) => {
+      this.isOneTimeChange = true;
+      await ctx.scene.enter('about');
+    });
+    profileEditScene.hears('4', async (ctx) => {
+      this.isOneTimeChange = true;
+      await ctx.scene.enter('socialLinks');
+    });
+    profileEditScene.hears('5', async (ctx) => {
+      this.isOneTimeChange = true;
+      await ctx.scene.enter('location');
+    });
+    profileEditScene.hears('6', async (ctx) => {
+      await ctx.reply(
+        `Після підтвердження, ваша анкета не буде відображатися іншим користувачам.
+        
+Анкета автоматично активується, якщо ви знову розпочнете пошук 👥
+        
+Ви дійсно хочете прибрати свою анкету з пошуку?`,
+        Markup.keyboard([
+          ['✅ Так, прибрати з пошуку', '❌ Ні, повернутись назад'],
+        ]).resize()
+      );
+    });
+    profileEditScene.hears('🔙 Назад', async (ctx) => {
+      await ctx.scene.enter('userformEdit');
+    });
+    profileEditScene.hears('✅ Так, прибрати з пошуку', async (ctx) => {
+      await this.db
+        .collection('users')
+        .updateOne({ userId: ctx.from.id }, { $set: { isActive: false } });
+      await ctx.reply(
+        'Дякуємо за користування нашим ботом. Сподіваємось, що ви чудово провели чаc 🖤',
+        Markup.removeKeyboard()
+      );
+    });
+    profileEditScene.hears('❌ Ні, повернутись назад', async (ctx) => {
+      await ctx.reply(
+        `1. Заповнити анкету заново
+2. Змінити фото або відео
+3. Змінити про себе
+4. Змінити посилання на соцмережі
+5. Змінити місто
+6. Приховати профіль`,
+        Markup.keyboard([['1', '2', '3', '4', '5', '6']])
+          .resize()
+          .oneTime()
+      );
+    });
+    this.addCommands(profileEditScene);
+    profileEditScene.on('message', async (ctx) => {
+      await ctx.reply(
+        'Обери що хочеш змінити',
+        Markup.keyboard([['1', '2', '3', '4', '5', '6']])
+          .oneTime()
+          .resize()
+      );
+    });
+    return profileEditScene;
   }
   eventMenuScene(): Scenes.BaseScene<MySceneContext> {
     const eventMenu = new Scenes.BaseScene<MySceneContext>('eventMenu');
@@ -901,7 +1260,9 @@ export class SceneGenerator {
         date: '',
         about: undefined,
         lookingFor: '',
-        location: ''
+        location: '',
+        lookingForMinAge: NaN,
+        lookingForMaxAge: NaN,
       };
       ctx.reply('Напиши назву події', Markup.removeKeyboard());
     });
@@ -1019,6 +1380,8 @@ export class SceneGenerator {
         await ctx.reply('Занадто довга назва міста');
       } else {
         this.event.location = ctx.message.text;
+        this.event.lookingForMinAge = ctx.session.userForm.lookingForMinAge;
+        this.event.lookingForMaxAge = ctx.session.userForm.lookingForMaxAge;
         await this.saveEventToDatabase(this.event);
         await ctx.reply(
           `Бінго! Очікуй на свій perfect match та неймовірно проведений час `,
@@ -1237,7 +1600,8 @@ export class SceneGenerator {
         events = (await this.getEventsFromDatabase(
           userForm.userId,
           userForm.gender,
-          userForm.actualLocation
+          userForm.actualLocation,
+          userForm.age
         )) as unknown as Event[];
         await ctx.reply(`🍾 Розпочинаємо пошук подій...
 
@@ -1274,12 +1638,17 @@ export class SceneGenerator {
     eventList.action(regex, async (ctx) => {
       eventUserId = +ctx.match[1];
       eventId = +ctx.match[2];
-      const eventUser = await this.getUserFormDataFromDatabase(eventUserId) as unknown as UserForm;
+      const eventUser = (await this.getUserFormDataFromDatabase(
+        eventUserId
+      )) as unknown as UserForm;
       if (eventUser) {
         const event = await this.getEventFromDatabase(eventUserId, eventId);
         if (event) {
           await ctx.editMessageReplyMarkup(undefined);
-        const mediaGroup =  this.showUserProfile(eventUser, ctx.session.userForm)
+          const mediaGroup = this.showUserProfile(
+            eventUser,
+            ctx.session.userForm
+          );
           await ctx.reply(
             'Ініціатор запрошення на подію 👇🏻',
             Markup.keyboard([['❤️', '👎']]).resize()
@@ -1452,7 +1821,7 @@ export class SceneGenerator {
             },
           });
         } catch (error) {
-          console.error('Event like error: ', error)
+          console.error('Event like error: ', error);
         }
         await ctx.reply(
           `Супер! Очікуй на повідомлення від ініціатора події 🥳 Бажаю приємно провести час 👋`,
@@ -1553,16 +1922,31 @@ export class SceneGenerator {
                 {
                   userId: { $ne: ctx.session.userForm.userId },
                   actualLocation: ctx.session.userForm.actualLocation,
-                  gender:
-                    ctx.session.userForm.lookingFor === 'both'
-                      ? { $in: ['male', 'female'] }
-                      : ctx.session.userForm.lookingFor,
+                  gender: ctx.session.userForm.lookingFor === 'both' ? { $in: ['male', 'female'] } : ctx.session.userForm.lookingFor,
                   lookingFor: { $in: [ctx.session.userForm.gender, 'both'] },
                   isActive: true,
                 },
                 {
                   userId: { $nin: distinctViewedUserIds },
                 },
+                {
+                  $expr: {
+                    $and: [
+                      {
+                        $gte: ['$age', ctx.session.userForm.lookingForMinAge],
+                      },
+                      {
+                        $lte: ['$age', ctx.session.userForm.lookingForMaxAge],
+                      },
+                      // {
+                      //   $lte: ['$lookingForMinAge', ctx.session.userForm.age],
+                      // },
+                      // {
+                      //   $gte: ['$lookingForMaxAge', ctx.session.userForm.age], // CODE FOR AGE RANGE
+                      // },
+                    ],
+                  },
+                }
               ],
             },
           },
@@ -2837,7 +3221,9 @@ export class SceneGenerator {
       }
     });
     likeArchive.hears('❤️', async (ctx) => {
-      const senderUser = await this.getUserFormDataFromDatabase(matchesArray[0].senderId) as unknown as UserForm
+      const senderUser = (await this.getUserFormDataFromDatabase(
+        matchesArray[0].senderId
+      )) as unknown as UserForm;
       const currentUser = this.showUserProfile(
         ctx.session.userForm,
         senderUser
@@ -2852,7 +3238,7 @@ export class SceneGenerator {
         username || `[${ctx.from?.first_name}](${userLink})`;
       try {
         await ctx.reply(
-          `Бажаємо весело провести час\n*Посилання на користувача:* ${matchesArray[0].senderMentionMessage}`,
+          `Бажаємо весело провести час 👋\n*Посилання на користувача:* ${matchesArray[0].senderMentionMessage}`,
           {
             parse_mode: 'Markdown',
           }
@@ -2889,9 +3275,19 @@ export class SceneGenerator {
             }
           );
         }
-        let caption = `Ви отримали взаємний лайк. Бажаємо весело провести час\nПосилання на користувача: ${mentionMessage}`;
-        if (isBotEvent || isUserEvent) {
-          caption = `Хтось відгукнувся на ваше запрошення. Бажаємо весело провести час\nПосилання на користувача: ${mentionMessage}`;
+        let caption = `Ви отримали взаємний лайк. Бажаємо весело провести час 👋\n*Посилання на користувача:* ${mentionMessage}`;
+        if (isBotEvent) {
+          caption = `Хтось відгукнувся на ваше запрошення. Бажаємо весело провести час 👋\n*Посилання на користувача:* ${mentionMessage}`;
+        } else if (isUserEvent && matchesArray[0]?.eventId) {
+          const event = await this.getEventFromDatabase(
+            matchesArray[0].receiverId,
+            matchesArray[0].eventId
+          );
+          if (event) {
+            caption = `🎉 Краш відповів взаємністю. Бажаємо весело провести час 👋\n\nОбговори деталі з ${mentionMessage} щодо події *${event.eventName}*`;
+          } else {
+            caption = `🎉 Краш відповів взаємністю, але схоже він видалив подію\nБажаємо весело провести час 👋\n\n*Посилання на користувача:* ${mentionMessage}`;
+          }
         }
         await ctx.telegram.sendMessage(matchesArray[0].senderId, caption, {
           parse_mode: 'Markdown',
@@ -3318,6 +3714,38 @@ export class SceneGenerator {
     );
     premiumSettings.enter(async (ctx) => {
       if (ctx.session.userForm.isPremium) {
+        let remainingTime = '';
+        if (ctx.session.userForm?.premiumEndTime) {
+          const premiumEndTime = new Date(ctx.session.userForm.premiumEndTime);
+          const timeDifference =
+            premiumEndTime.getTime() - new Date().getTime();
+          if (timeDifference >= 0) {
+            const days = Math.floor(timeDifference / (1000 * 60 * 60 * 24));
+            const hours = Math.floor(
+              (timeDifference % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60)
+            );
+            const minutes = Math.floor(
+              (timeDifference % (1000 * 60 * 60)) / (1000 * 60)
+            );
+            if (days > 0) {
+              remainingTime = `Преміум діятиме ще *${this.formatTimeUnits(
+                days,
+                'день'
+              )}*`;
+            } else if (hours > 0) {
+              remainingTime = `Преміум діятиме ще *${this.formatTimeUnits(
+                hours,
+                'година'
+              )}*`;
+            } else if (minutes > 0) {
+              remainingTime = `Преміум діятиме ще *${this.formatTimeUnits(
+                minutes,
+                'хвилина'
+              )}*`;
+            }
+          }
+        }
+        const premiumMessage = remainingTime ? `${remainingTime}\n\n` : '';
         const labelText = ctx.session.userForm.showPremiumLabel
           ? '⭐️ — Сховати'
           : '⭐️ — Показати';
@@ -3325,11 +3753,11 @@ export class SceneGenerator {
           ? '❤️ — Сховати'
           : '❤️ — Показати';
         await ctx.reply(
-          `${labelText} надпис ⭐️ *Premium Crush* в профілі\n${likesText} статистику під профілем\n<Вставити смайл> — Переглянути свою статистику (ще не створено)`,
+          `${premiumMessage}${labelText} надпис ⭐️ *Premium Crush* в профілі\n${likesText} статистику під профілем\n<Вставити смайл> — Переглянути свою статистику (ще не створено)`,
           {
             parse_mode: 'Markdown',
             reply_markup: {
-              keyboard: [['⭐️', '❤️']],
+              keyboard: [['⭐️', '❤️'], ['🔙 Назад']],
               resize_keyboard: true,
             },
           }
@@ -3363,6 +3791,9 @@ export class SceneGenerator {
       ctx.session.userForm.showLikesCount =
         !ctx.session.userForm.showLikesCount;
       await ctx.reply(message, Markup.removeKeyboard());
+    });
+    premiumSettings.hears('🔙 Назад', async (ctx) => {
+      await ctx.scene.enter('userform');
     });
     this.addCommands(premiumSettings);
     premiumSettings.on('message', async (ctx) => {
@@ -3755,7 +4186,20 @@ ${complaintsList}`;
       
 Команда crush’а міцно обійняла тебе🫂
       `);
-      await ctx.reply('⬇️⁣');
+      const userForm = await this.getUserFormDataFromDatabase(ctx.from.id);
+      if (userForm) {
+        await ctx.reply('⬇️⁣');
+      } else {
+        await ctx.reply(
+          '⬇️⁣',
+          Markup.keyboard([['👤 Створити профіль']])
+            .oneTime()
+            .resize()
+        );
+        scene.hears('👤 Створити профіль', async (ctx) => {
+          await ctx.scene.enter('userform');
+        });
+      }
     });
     scene.command('events', async (ctx) => {
       await ctx.scene.enter('eventChoose');
@@ -3826,6 +4270,8 @@ ${complaintsList}`;
               username: userForm.username,
               gender: userForm.gender,
               lookingFor: userForm.lookingFor,
+              lookingForMinAge: userForm.lookingForMinAge,
+              lookingForMaxAge: userForm.lookingForMaxAge,
               age: userForm.age,
               about: userForm.about,
               socialLinks: userForm.socialLinks,
@@ -3856,6 +4302,7 @@ ${complaintsList}`;
         userFormData.showLikesCount = true;
         userFormData.likesCount = 0;
         userFormData.dislikesCount = 0;
+        userFormData.isActive = true;
         await this.db.collection('users').insertOne(userFormData);
       }
     } catch (error) {
@@ -3869,6 +4316,25 @@ ${complaintsList}`;
       await this.db.collection('events').insertOne(eventData);
     } catch (error) {
       console.error('Error saving eventData data:', error);
+    }
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async updateUserPropertyToDatabase(
+    user: UserForm,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    propertiesToUpdate: Record<string, any>
+  ) {
+    try {
+      await this.db
+        .collection('users')
+        .updateOne(
+          { userId: user.userId },
+          { $set: propertiesToUpdate },
+          { upsert: true }
+        );
+    } catch (error) {
+      console.error('Error updating user property: ', error);
     }
   }
   async getUserFormDataFromDatabase(userId: number) {
@@ -3893,7 +4359,12 @@ ${complaintsList}`;
       }
     );
   }
-  async getEventsFromDatabase(userId: number, userGender: string, userLocation: string) {
+  async getEventsFromDatabase(
+    userId: number,
+    userGender: string,
+    userLocation: string,
+    userAge: number
+  ) {
     try {
       const regex = new RegExp(userLocation, 'i');
       const events = await this.db
@@ -3902,6 +4373,8 @@ ${complaintsList}`;
           userId: { $ne: userId },
           location: { $regex: regex },
           lookingFor: { $in: [userGender, 'both'] },
+          lookingForMinAge: { $lte: userAge },
+          lookingForMaxAge: { $gte: userAge },
         })
         .toArray();
       return events;
@@ -3961,6 +4434,24 @@ ${complaintsList}`;
             {
               userId: { $nin: distinctViewedUserIds },
             },
+            {
+              $expr: {
+                $and: [
+                  {
+                    $gte: ['$age', ctx.session.userForm.lookingForMinAge],
+                  },
+                  {
+                    $lte: ['$age', ctx.session.userForm.lookingForMaxAge],
+                  },
+                  // {
+                  //   $lte: ['$lookingForMinAge', ctx.session.userForm.age],
+                  // },
+                  // {
+                  //   $gte: ['$lookingForMaxAge', ctx.session.userForm.age], // CODE FOR AGE RANGE
+                  // },
+                ],
+              },
+            }
           ],
         },
       },
@@ -4051,9 +4542,26 @@ ${complaintsList}`;
 *Вік:* ${user.age}
 *Місто:* ${user.location}`;
       if (user.about?.type === 'text') {
-        caption = caption + `\n\n*Про себе:* ${user.about.content}`;
+        caption = caption + `\n*Про себе:* ${user.about.content}`;
       }
-      if (ctx.session.userForm.coordinates && user.coordinates) {
+      let coordsNull = false;
+      if (
+        ctx.session.userForm?.coordinates instanceof mongoose.Document &&
+        ctx.session.userForm?.coordinates.toObject() === null
+      ) {
+        coordsNull = true;
+      }
+      if (
+        user?.coordinates instanceof mongoose.Document &&
+        user?.coordinates.toObject() === null
+      ) {
+        coordsNull = true;
+      }
+      if (
+        ctx.session.userForm?.coordinates &&
+        user?.coordinates &&
+        !coordsNull
+      ) {
         let unit = 'км';
         let distance = this.calculateDistance(
           ctx.session.userForm.coordinates.latitude,
@@ -4118,9 +4626,22 @@ ${complaintsList}`;
 *Вік:* ${userForm.age}
 *Місто:* ${userForm.location}`;
     if (userForm.about?.type === 'text') {
-      caption = caption + `\n\n*Про себе:* ${userForm.about.content}`;
+      caption = caption + `\n*Про себе:* ${userForm.about.content}`;
     }
-    if (currentUser.coordinates && userForm.coordinates) {
+    let coordsNull = false;
+    if (
+      currentUser?.coordinates instanceof mongoose.Document &&
+      currentUser?.coordinates.toObject() === null
+    ) {
+      coordsNull = true;
+    }
+    if (
+      userForm?.coordinates instanceof mongoose.Document &&
+      userForm?.coordinates.toObject() === null
+    ) {
+      coordsNull = true;
+    }
+    if (currentUser?.coordinates && userForm?.coordinates && !coordsNull) {
       let unit = 'км';
       let distance = this.calculateDistance(
         currentUser.coordinates.latitude,
@@ -4145,7 +4666,10 @@ ${complaintsList}`;
     }
     if (likeMessage && likeMessage.type === 'text') {
       caption =
-        caption + '\n' + '*💌 Повідомлення від користувача: *' + likeMessage.content;
+        caption +
+        '\n' +
+        '*💌 Повідомлення від користувача: *' +
+        likeMessage.content;
     }
     if (userForm.socialLinks && userForm.socialLinks.length > 0) {
       let message = '';
@@ -4175,7 +4699,10 @@ ${complaintsList}`;
       )}\n*Дата та час події:* ${event.date.replace(
         /([_*[\]()~`>#+=|{}.!-])/g,
         '\\$1'
-      )}\n*Місто:* ${event.location?.replace(/([_*[\]()~`>#+=|{}.!-])/g, '\\$1')}`;
+      )}\n*Місто:* ${event.location?.replace(
+        /([_*[\]()~`>#+=|{}.!-])/g,
+        '\\$1'
+      )}`;
       const inlineKeyboardMarkup = Markup.inlineKeyboard([
         Markup.button.callback(
           '✅ Хочу піти',
@@ -4183,7 +4710,7 @@ ${complaintsList}`;
         ),
         Markup.button.callback('❌ Наступна подія', `nextEvent`),
       ]);
-  
+
       if (event.about) {
         await ctx.replyWithMarkdownV2(
           `${message}\n*Деталі:* ${event.about.replace(
@@ -4202,7 +4729,6 @@ ${complaintsList}`;
       );
     }
   }
-  
 
   async showBotEvent(
     events: Event[],
@@ -4262,7 +4788,7 @@ ${complaintsList}`;
           `deleteEvent:${event.userId}`
         ),
       ]);
-  
+
       if (event.about) {
         await ctx.replyWithMarkdownV2(
           `${message}\n*Деталі:* ${event.about}`,
@@ -4278,6 +4804,40 @@ ${complaintsList}`;
       );
     }
   }
+
+  formatTimeUnits(value: number, unit: string) {
+    function formatUnit(unit: string, number: number) {
+      const units: {
+        година: string[];
+        день: string[];
+        хвилина: string[];
+      } = {
+        година: ['годину', 'години', 'годин'],
+        день: ['день', 'дні', 'днів'],
+        хвилина: ['хвилину', 'хвилини', 'хвилин'],
+      };
+
+      let unitIndex;
+
+      if (number % 10 === 1 && number % 100 !== 11) {
+        unitIndex = 0;
+      } else if (
+        number % 10 >= 2 &&
+        number % 10 <= 4 &&
+        (number % 100 < 10 || number % 100 >= 20)
+      ) {
+        unitIndex = 1;
+      } else {
+        unitIndex = 2;
+      }
+
+      return units[unit as keyof typeof units][unitIndex];
+    }
+
+    const formattedUnit = formatUnit(unit, value);
+    return `${value} ${formattedUnit}`;
+  }
+
   calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
     const radLat1 = (Math.PI * lat1) / 180;
     const radLon1 = (Math.PI * lon1) / 180;

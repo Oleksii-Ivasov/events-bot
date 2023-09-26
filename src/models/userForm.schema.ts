@@ -26,6 +26,14 @@ const userFormSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
+  lookingForMinAge: {
+    type: Number,
+    required: true,
+  },
+  lookingForMaxAge: {
+    type: Number,
+    required: true,
+  },
   coordinates: {
     latitude: { type: Number, required: true },
     longitude: { type: Number, required: true },
