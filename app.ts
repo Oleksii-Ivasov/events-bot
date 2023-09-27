@@ -83,7 +83,12 @@ class Bot {
       this.sceneGenerator.premiumSettingsScene(),
       this.sceneGenerator.botEventListScene(),
       this.sceneGenerator.botEventLookingForScene(),
-      this.sceneGenerator.eventChooseScene()
+      this.sceneGenerator.eventChooseScene(),
+      this.sceneGenerator.botEventNameScene(),
+      this.sceneGenerator.botEventTimeScene(),
+      this.sceneGenerator.botEventAboutScene(),
+      this.sceneGenerator.botEventLocationScene(),
+      this.sceneGenerator.botEventPhotoScene()
     ],
     {
       ttl: 2592000,
@@ -190,9 +195,9 @@ class Bot {
     this.bot.command('start', async (ctx) => {
       await ctx.reply(`Вітаємо в ком'юніті Crush! 👋🏻
 
-💝 Crush — український бот знайомств, який наповнить твоє життя приємними моментами. Він допоможе тобі знайти ідеального компаньйона для будь-якої події або просто для приємної прогулянки в парку. А можливо, саме тут ти знайдеш свою кохану людину, нового друга або подругу для незабутніх спільних моментів!
+💝 Crush — український проєкт, який наповнить твоє життя приємними моментами. Він допоможе тобі знайти ідеального компаньйона для будь-якої події та активностей. А можливо, саме тут ти знайдеш собі нового друга або подругу для незабутніх спільних моментів!
       
-Команда crush’а міцно обійняла тебе🫂
+Команда Crush’а міцно обійняла тебе🫂
       `);
       await client.connect();
       const db = client.db('cluster0');
@@ -351,6 +356,13 @@ class Bot {
         await ctx.scene.enter('moderate');
       }
     });
+    this.bot.command('createEvent', async ctx => {
+      if (
+        ctx.from.id === parseInt(this.configService.get('TG_MODERATOR_ID'), 10)
+      ) {
+        await ctx.scene.enter('botEventName');
+      }
+    })
     this.bot.on('message', (ctx) => ctx.reply('Спробуй /start'));
   }
 

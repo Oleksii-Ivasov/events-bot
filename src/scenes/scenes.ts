@@ -131,6 +131,14 @@ export class SceneGenerator {
     lookingForMinAge: NaN,
     lookingForMaxAge: NaN,
   };
+  botEvent = {
+    eventId: NaN,
+    eventName: '',
+    date: '',
+    about: '',
+    location: '',
+    mediaIds: [{ type: '', id: '' }],
+  };
 
   nameScene(): Scenes.BaseScene<MySceneContext> {
     const name = new Scenes.BaseScene<MySceneContext>('name');
@@ -299,18 +307,16 @@ export class SceneGenerator {
           lookingForMinAge: ctx.session.userForm.lookingForMinAge,
           lookingForMaxAge: ctx.session.userForm.lookingForMaxAge,
         });
-        await this.db
-          .collection('events')
-          .updateMany(
-            { userId: ctx.session.userForm.userId },
-            {
-              $set: {
-                lookingForMinAge: ctx.session.userForm.lookingForMinAge,
-                lookingForMaxAge: ctx.session.userForm.lookingForMaxAge,
-              },
+        await this.db.collection('events').updateMany(
+          { userId: ctx.session.userForm.userId },
+          {
+            $set: {
+              lookingForMinAge: ctx.session.userForm.lookingForMinAge,
+              lookingForMaxAge: ctx.session.userForm.lookingForMaxAge,
             },
-            { upsert: true }
-          );
+          },
+          { upsert: true }
+        );
         await ctx.scene.enter('lookForMatchEdit');
       } else {
         await ctx.scene.enter('name');
@@ -328,18 +334,16 @@ export class SceneGenerator {
               lookingForMinAge: ctx.session.userForm.lookingForMinAge,
               lookingForMaxAge: ctx.session.userForm.lookingForMaxAge,
             });
-            await this.db
-              .collection('events')
-              .updateMany(
-                { userId: ctx.session.userForm.userId },
-                {
-                  $set: {
-                    lookingForMinAge: ctx.session.userForm.lookingForMinAge,
-                    lookingForMaxAge: ctx.session.userForm.lookingForMaxAge,
-                  },
+            await this.db.collection('events').updateMany(
+              { userId: ctx.session.userForm.userId },
+              {
+                $set: {
+                  lookingForMinAge: ctx.session.userForm.lookingForMinAge,
+                  lookingForMaxAge: ctx.session.userForm.lookingForMaxAge,
                 },
-                { upsert: true }
-              );
+              },
+              { upsert: true }
+            );
             await ctx.scene.enter('lookForMatchEdit');
           } else {
             await ctx.scene.enter('name');
@@ -776,14 +780,13 @@ export class SceneGenerator {
   photoScene(): Scenes.BaseScene<MySceneContext> {
     const photo = new Scenes.BaseScene<MySceneContext>('photo');
     let type: string;
-    const isMediaLimitReached = (ctx: MySceneContext) =>
-      ctx.session.userForm.mediaIds.length >= this.maxPhotoCount;
+    const isMediaLimitReached = () => this.uploadNumber >= this.maxPhotoCount;
     const handleMediaUpload = async (
       ctx: MySceneContext,
       mediaType: string,
       mediaId: string
     ) => {
-      if (!isMediaLimitReached(ctx)) {
+      if (!isMediaLimitReached()) {
         this.mediaIds.push({ type: mediaType, id: mediaId });
         this.uploadNumber++;
       }
@@ -792,35 +795,33 @@ export class SceneGenerator {
       } else {
         type = 'Фото';
       }
-      if (!isMediaLimitReached(ctx)) {
+      if (!isMediaLimitReached()) {
         await ctx.reply(
-          `✅ ${type} №${this.uploadNumber} збережено`,
+          `✅ ${type} №${this.uploadNumber} успішно додано в твій профіль`,
           Markup.keyboard([['Це все, зберегти медіа']])
             .oneTime()
             .resize()
         );
       } else if (!this.isUploaded) {
+        this.isUploaded = true;
         await ctx.reply(
-          `✅ ${type} №${this.uploadNumber} збережено`,
+          `✅ ${type} №${this.uploadNumber} успішно додано в твій профіль`,
           Markup.keyboard([['Це все, зберегти медіа']])
             .oneTime()
             .resize()
         );
-        this.isUploaded = true;
         ctx.session.userForm.mediaIds = this.mediaIds;
         await this.saveUserFormToDatabase(ctx.session.userForm);
-        await this.db
-          .collection('events')
-          .updateMany(
-            { userId: ctx.session.userForm.userId },
-            {
-              $set: {
-                lookingForMinAge: ctx.session.userForm.lookingForMinAge,
-                lookingForMaxAge: ctx.session.userForm.lookingForMaxAge,
-              },
+        await this.db.collection('events').updateMany(
+          { userId: ctx.session.userForm.userId },
+          {
+            $set: {
+              lookingForMinAge: ctx.session.userForm.lookingForMinAge,
+              lookingForMaxAge: ctx.session.userForm.lookingForMaxAge,
             },
-            { upsert: true }
-          );
+          },
+          { upsert: true }
+        );
         await ctx.scene.enter('userform');
       }
     };
@@ -848,18 +849,16 @@ export class SceneGenerator {
       if (ctx.session.userForm.mediaIds.length > 0) {
         this.isUploaded = true;
         await this.saveUserFormToDatabase(ctx.session.userForm);
-        await this.db
-          .collection('events')
-          .updateMany(
-            { userId: ctx.session.userForm.userId },
-            {
-              $set: {
-                lookingForMinAge: ctx.session.userForm.lookingForMinAge,
-                lookingForMaxAge: ctx.session.userForm.lookingForMaxAge,
-              },
+        await this.db.collection('events').updateMany(
+          { userId: ctx.session.userForm.userId },
+          {
+            $set: {
+              lookingForMinAge: ctx.session.userForm.lookingForMinAge,
+              lookingForMaxAge: ctx.session.userForm.lookingForMaxAge,
             },
-            { upsert: true }
-          );
+          },
+          { upsert: true }
+        );
         await ctx.scene.enter('userform');
       }
     });
@@ -887,18 +886,16 @@ export class SceneGenerator {
       this.isUploaded = true;
       ctx.session.userForm.mediaIds = this.mediaIds;
       await this.saveUserFormToDatabase(ctx.session.userForm);
-      await this.db
-        .collection('events')
-        .updateMany(
-          { userId: ctx.session.userForm.userId },
-          {
-            $set: {
-              lookingForMinAge: ctx.session.userForm.lookingForMinAge,
-              lookingForMaxAge: ctx.session.userForm.lookingForMaxAge,
-            },
+      await this.db.collection('events').updateMany(
+        { userId: ctx.session.userForm.userId },
+        {
+          $set: {
+            lookingForMinAge: ctx.session.userForm.lookingForMinAge,
+            lookingForMaxAge: ctx.session.userForm.lookingForMaxAge,
           },
-          { upsert: true }
-        );
+        },
+        { upsert: true }
+      );
       await ctx.scene.enter('userform');
     });
     photo.hears('👫 Звичайний пошук', async (ctx) => {
@@ -1362,19 +1359,22 @@ export class SceneGenerator {
     eventLocation.enter(async (ctx) => {
       if (ctx.session.userForm.location) {
         await ctx.reply(
-          'Вкажи місто у якому буде проводитись подія',
+          'Вкажи місто, в якому буде проводитися подія',
           Markup.keyboard([[ctx.session.userForm.location]])
             .oneTime()
             .resize()
         );
       } else {
         await ctx.reply(
-          'Вкажи місто у якому буде проводитись подія',
+          'Вкажи місто, в якому буде проводитися подія',
           Markup.removeKeyboard()
         );
       }
     });
     this.addCommands(eventLocation);
+    eventLocation.hears('👤 Мій профіль', async (ctx) => {
+      await ctx.scene.enter('userform');
+    });
     eventLocation.on('text', async (ctx) => {
       if (ctx.message.text.length > 30) {
         await ctx.reply('Занадто довга назва міста');
@@ -1384,22 +1384,24 @@ export class SceneGenerator {
         this.event.lookingForMaxAge = ctx.session.userForm.lookingForMaxAge;
         await this.saveEventToDatabase(this.event);
         await ctx.reply(
-          `Бінго! Очікуй на свій perfect match та неймовірно проведений час `,
-          Markup.removeKeyboard()
+          `Бінго! 🥳\nТвоя подія успішно створена, тому очікуй на свій perfect match та неймовірно проведений час`,
+          Markup.keyboard([['👤 Мій профіль', '👫 Звичайний пошук']])
+            .oneTime()
+            .resize()
         );
       }
     });
     eventLocation.on('message', async (ctx) => {
       if (ctx.session.userForm.location) {
         await ctx.reply(
-          'Вкажи місто у якому буде проводитись подія',
+          'Вкажи місто, в якому буде проводитися подія',
           Markup.keyboard([[ctx.session.userForm.location]])
             .oneTime()
             .resize()
         );
       } else {
         await ctx.reply(
-          'Вкажи місто у якому буде проводитись подія',
+          'Вкажи місто, в якому буде проводитися подія',
           Markup.removeKeyboard()
         );
       }
@@ -1449,7 +1451,7 @@ export class SceneGenerator {
     const eventChoose = new Scenes.BaseScene<MySceneContext>('eventChoose');
     eventChoose.enter(async (ctx) => {
       await ctx.reply(
-        `Обери тип подій, які хочеш переглянути\n\n🍾 — Події, створені користувачами\n🎫 — Події, запропоновані ботом`,
+        `Обери тип подій, які хочеш переглянути\n\n🍾 — Події, створені користувачами\n🎫 — Події, рекомендовані Crush`,
         Markup.keyboard([['🍾', '🎫']])
           .oneTime()
           .resize()
@@ -1464,7 +1466,7 @@ export class SceneGenerator {
     this.addCommands(eventChoose);
     eventChoose.on('message', async (ctx) => {
       await ctx.reply(
-        `Обери тип подій, які хочеш переглянути\n\n🍾 — Події, створені користувачами\n🎫 — Події, запропоновані ботом`,
+        `Обери тип подій, які хочеш переглянути\n\n🍾 — Події, створені користувачами\n🎫 — Події, рекомендовані Crush`,
         Markup.keyboard([['🍾', '🎫']])
           .oneTime()
           .resize()
@@ -1473,10 +1475,174 @@ export class SceneGenerator {
     return eventChoose;
   }
 
+  botEventNameScene(): Scenes.BaseScene<MySceneContext> {
+    const botEventName = new Scenes.BaseScene<MySceneContext>('botEventName');
+    botEventName.enter(async (ctx) => {
+      await ctx.reply('Напиши назву події', Markup.removeKeyboard());
+    });
+    this.addCommands(botEventName);
+    botEventName.on('text', async (ctx) => {
+      this.botEvent.eventName = ctx.message.text;
+      this.botEvent.eventId = Math.floor(Math.random() * 1000);
+      await ctx.scene.enter('botEventTime');
+    });
+    botEventName.on('message', async (ctx) => {
+      await ctx.reply('Вкажи назву події');
+    });
+    return botEventName;
+  }
+  botEventTimeScene(): Scenes.BaseScene<MySceneContext> {
+    const botEventTime = new Scenes.BaseScene<MySceneContext>('botEventTime');
+    botEventTime.enter(async (ctx) => {
+      await ctx.reply('Вкажи дату події');
+    });
+    this.addCommands(botEventTime);
+    botEventTime.on('text', async (ctx) => {
+      this.botEvent.date = ctx.message.text;
+      await ctx.scene.enter('botEventAbout');
+    });
+    botEventTime.on('message', async (ctx) => {
+      await ctx.reply('Вкажи дату події');
+    });
+
+    return botEventTime;
+  }
+  botEventAboutScene(): Scenes.BaseScene<MySceneContext> {
+    const botEventAbout = new Scenes.BaseScene<MySceneContext>('botEventAbout');
+    botEventAbout.enter(async (ctx) => {
+      await ctx.reply(
+        'Уточни деталі пропозиції/події',
+        Markup.keyboard(['Пропустити']).oneTime().resize()
+      );
+    });
+    this.addCommands(botEventAbout);
+    botEventAbout.hears('Пропустити', async (ctx) => {
+      this.botEvent.about = '';
+      await ctx.scene.enter('botEventLocation');
+    });
+    botEventAbout.on('text', async (ctx) => {
+      this.botEvent.about = ctx.message.text;
+      await ctx.scene.enter('botEventLocation');
+    });
+    botEventAbout.on('message', async (ctx) => {
+      await ctx.reply('Вкажи деталі події');
+    });
+
+    return botEventAbout;
+  }
+
+  botEventLocationScene(): Scenes.BaseScene<MySceneContext> {
+    const botEventLocation = new Scenes.BaseScene<MySceneContext>(
+      'botEventLocation'
+    );
+    botEventLocation.enter(async (ctx) => {
+      if (ctx.session.userForm.location) {
+        await ctx.reply(
+          'Вкажи місто, в якому буде проводитися подія',
+          Markup.keyboard([[ctx.session.userForm.location]])
+            .oneTime()
+            .resize()
+        );
+      } else {
+        await ctx.reply(
+          'Вкажи місто, в якому буде проводитися подія',
+          Markup.removeKeyboard()
+        );
+      }
+    });
+    this.addCommands(botEventLocation);
+    botEventLocation.on('text', async (ctx) => {
+      if (ctx.message.text.length > 30) {
+        await ctx.reply('Занадто довга назва міста');
+      } else {
+        this.botEvent.location = ctx.message.text;
+        await ctx.scene.enter('botEventPhoto');
+      }
+    });
+    botEventLocation.on('message', async (ctx) => {
+      if (ctx.session.userForm.location) {
+        await ctx.reply(
+          'Вкажи місто, в якому буде проводитися подія',
+          Markup.keyboard([[ctx.session.userForm.location]])
+            .oneTime()
+            .resize()
+        );
+      } else {
+        await ctx.reply(
+          'Вкажи місто, в якому буде проводитися подія',
+          Markup.removeKeyboard()
+        );
+      }
+    });
+    return botEventLocation;
+  }
+
+  botEventPhotoScene(): Scenes.BaseScene<MySceneContext> {
+    const botEventPhoto = new Scenes.BaseScene<MySceneContext>('botEventPhoto');
+    const handleMediaUpload = async (
+      ctx: MySceneContext,
+      mediaType: string,
+      mediaId: string
+    ) => {
+      let type = 'Фото';
+      this.botEvent.mediaIds.push({ type: mediaType, id: mediaId });
+      if (mediaType === 'video') {
+        type = 'Відео';
+      } else {
+        type = 'Фото';
+      }
+      await ctx.reply(
+        `✅ ${type} №${this.botEvent.mediaIds.length} успішно завантажено`,
+        Markup.keyboard([['Це все, зберегти медіа']])
+          .oneTime()
+          .resize()
+      );
+    };
+    botEventPhoto.enter(async (ctx) => {
+      await ctx.reply(
+        'Завантаж фото або відео події',
+        Markup.keyboard([['Пропустити']])
+          .oneTime()
+          .resize()
+      );
+      this.botEvent.mediaIds = [];
+    });
+    botEventPhoto.on('photo', async ctx => {
+      const photos = ctx.message.photo;
+      photos.sort((a, b) => {
+        const resolutionA = a.width * a.height;
+        const resolutionB = b.width * b.height;
+        return resolutionB - resolutionA;
+      });
+      await handleMediaUpload(ctx, 'photo', photos[0].file_id);
+    })
+    botEventPhoto.on('video', async ctx => {
+      await handleMediaUpload(ctx, 'video', ctx.message.video.file_id);
+    })
+    botEventPhoto.hears('Це все, зберегти медіа', async (ctx) => {
+      await this.db.collection('bot_events').insertOne(this.botEvent);
+      await ctx.reply('Подію успішно створено 🥳');
+    });
+    this.addCommands(botEventPhoto);
+    botEventPhoto.hears('Пропустити', async (ctx) => {
+      this.botEvent.mediaIds = [];
+      await this.db.collection('bot_events').insertOne(this.botEvent);
+      await ctx.reply('Подію успішно створено 🥳');
+    });
+    botEventPhoto.on('message', async (ctx) => {
+      await ctx.reply(
+        'Завантаж фото або відео події',
+        Markup.keyboard([['Пропустити']])
+          .oneTime()
+          .resize()
+      );
+    });
+    return botEventPhoto;
+  }
+
   botEventListScene(): Scenes.BaseScene<MySceneContext> {
     const botEventList = new Scenes.BaseScene<MySceneContext>('botEventList');
     let currentEventIndex = 0;
-    let currentEventId = 0;
     let events: Event[];
     botEventList.enter(async (ctx) => {
       const user = await this.getUserFormDataFromDatabase(ctx.from!.id);
@@ -1488,14 +1654,17 @@ export class SceneGenerator {
         events = (await this.getBotEventsListFromDatabase(
           user.actualLocation
         )) as unknown as Event[];
-        currentEventIndex = 0;
-        currentEventId = 0;
         if (events && events.length > 0) {
           await ctx.reply(
             'Ось список подій у твоєму місті 👇🏻',
             Markup.keyboard([['❤️', '👎']]).resize()
           );
-          await this.showBotEvent(events, currentEventIndex, ctx);
+          currentEventIndex = 0;
+          try {
+            await this.showBotEvent(events, currentEventIndex, ctx);
+          } catch (error) {
+            console.error('Error showing bot event: ', error)
+          }
         } else {
           await ctx.reply(
             `Схоже в твоєму місті подій немає, зв'яжись з підримкою, якщо хочеш побачити підбірку подій у своєму місті`,
@@ -1503,13 +1672,6 @@ export class SceneGenerator {
           );
         }
         await this.registerUserLastActivity(user.userId);
-      } else {
-        await ctx.reply(
-          'Щоб користуватись промокодами спочатку треба створити акаунт',
-          Markup.keyboard([['👤 Створити профіль']])
-            .oneTime()
-            .resize()
-        );
       }
     });
     botEventList.hears('❤️', async (ctx) => {
@@ -1519,8 +1681,7 @@ export class SceneGenerator {
           eventId: 0,
         };
       }
-      currentEventId = events[currentEventIndex].eventId;
-      ctx.session.eventDetails.eventId = currentEventId;
+      ctx.session.eventDetails.eventId =  events[currentEventIndex].eventId;
       currentEventIndex++;
       await ctx.scene.enter('botEventLookingFor');
     });
@@ -1884,7 +2045,7 @@ export class SceneGenerator {
 Сподіваємось, ти знайдеш свого краша
             
 👀 Пам ятайте, що люди в Інтернеті можуть бути не тими, за кого себе видають`,
-          Markup.keyboard([['❤️', '❤️‍🔥', '👎', 'Скарга']]).resize()
+          Markup.keyboard([['❤️', '❤️‍🔥', '👎', '👮‍♂️ Скарга']]).resize()
         );
         if (!ctx.session.userForm.isActive) {
           ctx.session.userForm.isActive = true;
@@ -1922,7 +2083,10 @@ export class SceneGenerator {
                 {
                   userId: { $ne: ctx.session.userForm.userId },
                   actualLocation: ctx.session.userForm.actualLocation,
-                  gender: ctx.session.userForm.lookingFor === 'both' ? { $in: ['male', 'female'] } : ctx.session.userForm.lookingFor,
+                  gender:
+                    ctx.session.userForm.lookingFor === 'both'
+                      ? { $in: ['male', 'female'] }
+                      : ctx.session.userForm.lookingFor,
                   lookingFor: { $in: [ctx.session.userForm.gender, 'both'] },
                   isActive: true,
                 },
@@ -1946,7 +2110,7 @@ export class SceneGenerator {
                       // },
                     ],
                   },
-                }
+                },
               ],
             },
           },
@@ -2283,10 +2447,10 @@ export class SceneGenerator {
         );
       }
     });
-    lookForMatch.hears('Скарга', async (ctx) => {
+    lookForMatch.hears('👮‍♂️ Скарга', async (ctx) => {
       this.reportedUserId = userMatchForms[currentUserIndex]?.userId;
-      ctx.scene.enter('complaint');
       currentUserIndex++;
+      ctx.scene.enter('complaint');
     });
     this.addCommands(lookForMatch);
     lookForMatch.on('text', async (ctx) => {
@@ -2353,7 +2517,7 @@ export class SceneGenerator {
             this.isLikeMessage = false;
             await ctx.reply(
               '✅ Відправили твоє повідомлення',
-              Markup.keyboard([['❤️', '❤️‍🔥', '👎', 'Скарга']]).resize()
+              Markup.keyboard([['❤️', '❤️‍🔥', '👎', '👮‍♂️ Скарга']]).resize()
             );
             currentUserIndex++;
             this.isProfilesWithLocationEnded = await this.sendUserDetails(
@@ -2475,7 +2639,7 @@ export class SceneGenerator {
               this.isLikeMessage = false;
               await ctx.reply(
                 '✅ Відправили твоє повідомлення',
-                Markup.keyboard([['❤️', '❤️‍🔥', '👎', 'Скарга']]).resize()
+                Markup.keyboard([['❤️', '❤️‍🔥', '👎', '👮‍♂️ Скарга']]).resize()
               );
               currentUserIndex++;
               this.isProfilesWithLocationEnded = await this.sendUserDetails(
@@ -2599,7 +2763,7 @@ export class SceneGenerator {
             this.isLikeMessage = false;
             await ctx.reply(
               '✅ Відправили твоє повідомлення',
-              Markup.keyboard([['❤️', '❤️‍🔥', '👎', 'Скарга']]).resize()
+              Markup.keyboard([['❤️', '❤️‍🔥', '👎', '👮‍♂️ Скарга']]).resize()
             );
             currentUserIndex++;
             this.isProfilesWithLocationEnded = await this.sendUserDetails(
@@ -2723,7 +2887,7 @@ export class SceneGenerator {
               this.isLikeMessage = false;
               await ctx.reply(
                 '✅ Відправили твоє повідомлення',
-                Markup.keyboard([['❤️', '❤️‍🔥', '👎', 'Скарга']]).resize()
+                Markup.keyboard([['❤️', '❤️‍🔥', '👎', '👮‍♂️ Скарга']]).resize()
               );
               currentUserIndex++;
               this.isProfilesWithLocationEnded = await this.sendUserDetails(
@@ -2845,7 +3009,7 @@ export class SceneGenerator {
               this.isLikeMessage = false;
               await ctx.reply(
                 '✅ Відправили твоє повідомлення',
-                Markup.keyboard([['❤️', '❤️‍🔥', '👎', 'Скарга']]).resize()
+                Markup.keyboard([['❤️', '❤️‍🔥', '👎', '👮‍♂️ Скарга']]).resize()
               );
               currentUserIndex++;
               this.isProfilesWithLocationEnded = await this.sendUserDetails(
@@ -3712,6 +3876,7 @@ export class SceneGenerator {
     const premiumSettings = new Scenes.BaseScene<MySceneContext>(
       'premiumSettings'
     );
+    let premiumMessage = '';
     premiumSettings.enter(async (ctx) => {
       if (ctx.session.userForm.isPremium) {
         let remainingTime = '';
@@ -3745,7 +3910,7 @@ export class SceneGenerator {
             }
           }
         }
-        const premiumMessage = remainingTime ? `${remainingTime}\n\n` : '';
+        premiumMessage = remainingTime ? `${remainingTime}\n\n` : '';
         const labelText = ctx.session.userForm.showPremiumLabel
           ? '⭐️ — Сховати'
           : '⭐️ — Показати';
@@ -3753,7 +3918,7 @@ export class SceneGenerator {
           ? '❤️ — Сховати'
           : '❤️ — Показати';
         await ctx.reply(
-          `${premiumMessage}${labelText} надпис ⭐️ *Premium Crush* в профілі\n${likesText} статистику під профілем\n<Вставити смайл> — Переглянути свою статистику (ще не створено)`,
+          `${premiumMessage}${labelText} фірмову позначку ⭐️\n${likesText} статистику під профілем\n<Вставити смайл> — Переглянути свою статистику (ще не створено)`,
           {
             parse_mode: 'Markdown',
             reply_markup: {
@@ -3766,8 +3931,8 @@ export class SceneGenerator {
     });
     premiumSettings.hears('⭐️', async (ctx) => {
       const message = ctx.session.userForm.showPremiumLabel
-        ? '✅ Надпис прибрано'
-        : '✅ Надпис додано';
+        ? '✅ Фірмову позначку було прибрано. Ти можеш в будь-який момент додати її'
+        : '✅ Фірмову позначку успішно додано';
       const updateField = ctx.session.userForm.showPremiumLabel
         ? { showPremiumLabel: false }
         : { showPremiumLabel: true };
@@ -3776,12 +3941,18 @@ export class SceneGenerator {
         .updateOne({ userId: ctx.from.id }, { $set: updateField });
       ctx.session.userForm.showPremiumLabel =
         !ctx.session.userForm.showPremiumLabel;
-      await ctx.reply(message, Markup.removeKeyboard());
+      await ctx.reply(message, {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          keyboard: [['⭐️', '❤️'], ['🔙 Назад']],
+          resize_keyboard: true,
+        },
+      });
     });
     premiumSettings.hears('❤️', async (ctx) => {
       const message = ctx.session.userForm.showLikesCount
-        ? '✅ Кількість лайків прибрано'
-        : '✅ Кількість лайків додано';
+        ? '✅ Статистику отриманих тобою вподобайок сховано. Їхня кількість *не обнулиться*'
+        : '✅  Статистику отриманих тобою вподобайок успішно додано в твій профіль';
       const updateField = ctx.session.userForm.showLikesCount
         ? { showLikesCount: false }
         : { showLikesCount: true };
@@ -3790,7 +3961,13 @@ export class SceneGenerator {
         .updateOne({ userId: ctx.from.id }, { $set: updateField });
       ctx.session.userForm.showLikesCount =
         !ctx.session.userForm.showLikesCount;
-      await ctx.reply(message, Markup.removeKeyboard());
+      await ctx.reply(message, {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          keyboard: [['⭐️', '❤️'], ['🔙 Назад']],
+          resize_keyboard: true,
+        },
+      });
     });
     premiumSettings.hears('🔙 Назад', async (ctx) => {
       await ctx.scene.enter('userform');
@@ -3805,11 +3982,11 @@ export class SceneGenerator {
           ? '❤️ — Сховати'
           : '❤️ — Показати';
         await ctx.reply(
-          `${labelText} надпис ⭐️ *Premium Crush* в профілі\n${likesText} статистику під профілем\n<Вставити смайл> — Переглянути свою статистику (ще не створено)`,
+          `${premiumMessage}${labelText} фірмову позначку ⭐️\n${likesText} статистику під профілем\n<Вставити смайл> — Переглянути свою статистику (ще не створено)`,
           {
             parse_mode: 'Markdown',
             reply_markup: {
-              keyboard: [['⭐️', '❤️']],
+              keyboard: [['⭐️', '❤️'], ['🔙 Назад']],
               resize_keyboard: true,
             },
           }
@@ -4135,6 +4312,20 @@ export class SceneGenerator {
         { parse_mode: 'Markdown' }
       );
     });
+    help.command('moderate', async ctx => {
+      if (
+        ctx.from.id === parseInt(this.configService.get('TG_MODERATOR_ID'), 10)
+      ) {
+        await ctx.scene.enter('moderate');
+      }
+    })
+    help.command('createEvent', async ctx => {
+      if (
+        ctx.from.id === parseInt(this.configService.get('TG_MODERATOR_ID'), 10)
+      ) {
+        await ctx.scene.enter('botEventName');
+      }
+    })
     this.addCommands(help);
     help.on('message', async (ctx) => {
       await ctx.reply(
@@ -4182,10 +4373,9 @@ ${complaintsList}`;
     scene.command('start', async (ctx) => {
       await ctx.reply(`Вітаємо в ком'юніті Crush! 👋🏻
 
-💝 Crush — український бот знайомств, який наповнить твоє життя приємними моментами. Він допоможе тобі знайти ідеального компаньйона для будь-якої події або просто для приємної прогулянки в парку. А можливо, саме тут ти знайдеш свою кохану людину, нового друга або подругу для незабутніх спільних моментів!
+💝 Crush — український проєкт, який наповнить твоє життя приємними моментами. Він допоможе тобі знайти ідеального компаньйона для будь-якої події та активностей. А можливо, саме тут ти знайдеш собі нового друга або подругу для незабутніх спільних моментів!
       
-Команда crush’а міцно обійняла тебе🫂
-      `);
+Команда Crush’а міцно обійняла тебе🫂`);
       const userForm = await this.getUserFormDataFromDatabase(ctx.from.id);
       if (userForm) {
         await ctx.reply('⬇️⁣');
@@ -4303,6 +4493,8 @@ ${complaintsList}`;
         userFormData.likesCount = 0;
         userFormData.dislikesCount = 0;
         userFormData.isActive = true;
+        userFormData.likesSentCount = 0;
+        userFormData.isPremium = false;
         await this.db.collection('users').insertOne(userFormData);
       }
     } catch (error) {
@@ -4451,7 +4643,7 @@ ${complaintsList}`;
                   // },
                 ],
               },
-            }
+            },
           ],
         },
       },
@@ -4759,7 +4951,7 @@ ${complaintsList}`;
       return;
     } else {
       await ctx.reply(
-        'Подій, які підходять під твої запити, більше немає, можеш створити нову',
+        `Схоже це все, подій, які підходять під твої запити, більше немає, можеш зачекати доки з'являться нові`,
         Markup.removeKeyboard()
       );
     }
