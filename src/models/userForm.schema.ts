@@ -35,8 +35,8 @@ const userFormSchema = new mongoose.Schema({
     required: true,
   },
   coordinates: {
-    latitude: { type: Number, required: true },
-    longitude: { type: Number, required: true },
+    type: mongoose.Schema.Types.Mixed,
+    default: null,
   },
   location: {
     type: String,
@@ -107,6 +107,15 @@ const userFormSchema = new mongoose.Schema({
   },
   dislikesCount: {
     type: Number,
+    required: true,
+  },
+  referralToken: {
+    type: String,
+    required: true,
+  },
+  referees: {
+    type: [String],
+    default: [],
     required: true,
   },
 });

@@ -21,9 +21,9 @@ const client = new MongoClient(uri, {
   },
 });
 
-const SUBSCRIPTION_DURAION_1MONTH = 60 * 60 * 1000 // 1 hour
-const SUBSCRIPTION_DURAION_6MONTHS = 60 * 60 * 2 * 1000 // 2 hour
-const SUBSCRIPTION_DURAION_1YEAR = 60 * 60 * 3 * 1000 // 3 hour
+const SUBSCRIPTION_DURAION_1MONTH = 60 * 60 * 1000; // 1 hour
+const SUBSCRIPTION_DURAION_6MONTHS = 60 * 60 * 2 * 1000; // 2 hour
+const SUBSCRIPTION_DURAION_1YEAR = 60 * 60 * 3 * 1000; // 3 hour
 
 async function run() {
   try {
@@ -88,7 +88,8 @@ class Bot {
       this.sceneGenerator.botEventTimeScene(),
       this.sceneGenerator.botEventAboutScene(),
       this.sceneGenerator.botEventLocationScene(),
-      this.sceneGenerator.botEventPhotoScene()
+      this.sceneGenerator.botEventPhotoScene(),
+      this.sceneGenerator.referralScene(),
     ],
     {
       ttl: 2592000,
@@ -108,7 +109,7 @@ class Bot {
       /"transactionStatus.":."([^"]+)\\"/
     );
     console.log(data);
-    if ( orderReference && transactionStatusMatch) {
+    if (orderReference && transactionStatusMatch) {
       const userId = +orderReference[2];
       const subscriptionPeriod = orderReference[3];
       const concatenatedString = `${orderReference[1]};${status};${time}`;
@@ -126,24 +127,24 @@ class Bot {
       console.log(JSON.stringify(responseObject));
       res.json(responseObject);
       if (transactionStatusMatch[1] === 'Approved') {
-       let subscriptionDurationMs = 0;
-       let subscriptionPeriodUa = '';
-       switch (subscriptionPeriod) {
-        case '1 month':
-          subscriptionDurationMs = SUBSCRIPTION_DURAION_1MONTH
-          subscriptionPeriodUa = '1 місяць';
-          break; 
-        case '6 months':
-          subscriptionDurationMs = SUBSCRIPTION_DURAION_6MONTHS
-          subscriptionPeriodUa = '6 місяців';
-          break 
-        case '1 year':
-          subscriptionDurationMs = SUBSCRIPTION_DURAION_1YEAR
-          subscriptionPeriodUa =  '1 рік';
-          break 
-        default:
-          return 0;
-      }
+        let subscriptionDurationMs = 0;
+        let subscriptionPeriodUa = '';
+        switch (subscriptionPeriod) {
+          case '1 month':
+            subscriptionDurationMs = SUBSCRIPTION_DURAION_1MONTH;
+            subscriptionPeriodUa = '1 місяць';
+            break;
+          case '6 months':
+            subscriptionDurationMs = SUBSCRIPTION_DURAION_6MONTHS;
+            subscriptionPeriodUa = '6 місяців';
+            break;
+          case '1 year':
+            subscriptionDurationMs = SUBSCRIPTION_DURAION_1YEAR;
+            subscriptionPeriodUa = '1 рік';
+            break;
+          default:
+            return 0;
+        }
         const premiumEndTime = new Date();
         premiumEndTime.setTime(
           premiumEndTime.getTime() + subscriptionDurationMs
@@ -161,12 +162,18 @@ class Bot {
           }
         );
         const currentMonth = new Date().getMonth() + 1;
-        await db.collection('payments').updateOne({subscriptionPeriodUa}, {
-          $inc: { numberOfPayments: 1 },
-          $set: { currentMonth, subscriptionPeriodUa },
-          
-        },  { upsert: true })
-        this.bot.telegram.sendMessage(userId, `В тебе тепер є преміум на ${subscriptionPeriodUa}`);
+        await db.collection('payments').updateOne(
+          { subscriptionPeriodUa },
+          {
+            $inc: { numberOfPayments: 1 },
+            $set: { currentMonth, subscriptionPeriodUa },
+          },
+          { upsert: true }
+        );
+        this.bot.telegram.sendMessage(
+          userId,
+          `В тебе тепер є преміум на ${subscriptionPeriodUa}`
+        );
       } else {
         console.log(transactionStatusMatch[1]);
         if (transactionStatusMatch[1] !== 'Refunded') {
@@ -182,7 +189,7 @@ class Bot {
   constructor(private readonly configService: IConfigService) {
     this.bot = new Telegraf(this.configService.get('TOKEN'));
     this.bot.use(session());
-   // this.bot.use(new LocalSession({ database: 'sessions.json' }).middleware());
+    // this.bot.use(new LocalSession({ database: 'sessions.json' }).middleware());
     this.bot.use(this.stage.middleware());
     app.use(bodyParser.urlencoded({ extended: true }));
     app.get('/', (req, res) => {
@@ -201,11 +208,34 @@ class Bot {
       `);
       await client.connect();
       const db = client.db('cluster0');
-      const userForm = await db.collection('users').findOne({userId: ctx.from.id});
+      const userForm = await db
+        .collection('users')
+        .findOne({ userId: ctx.from.id });
       if (userForm) {
-        await ctx.reply('⬇️⁣')
+        await ctx.reply('⬇️⁣');
       } else {
-        await ctx.reply('⬇️⁣', Markup.keyboard([['👤 Створити профіль']]).oneTime().resize())
+        await ctx.reply(
+          '⬇️⁣',
+          Markup.keyboard([['👤 Створити профіль']])
+            .oneTime()
+            .resize()
+        );
+        const referralToken = ctx.message.text.split(' ')[1];
+        if (referralToken) {
+          const referrerUser = await db
+            .collection('users')
+            .findOne({ referralToken });
+          if (referrerUser) {
+            const updatedReferees = [...referrerUser.referees, ctx.from.id];
+            await db
+              .collection('users')
+              .updateOne(
+                { userId: referrerUser.userId },
+                { $set: { referees: updatedReferees } },
+                { upsert: true }
+              );
+          }
+        }
       }
     });
     // const regex = /^(.+):(\d+):(.+)$/;
@@ -321,6 +351,9 @@ class Bot {
     this.bot.command('code', async (ctx) => {
       await ctx.scene.enter('promocode');
     });
+    this.bot.command('referral', async (ctx) => {
+      await ctx.scene.enter('referral');
+    });
     this.bot.hears('🗄 Перейти у архів', async (ctx) => {
       await ctx.scene.enter('likeArchive');
     });
@@ -356,13 +389,13 @@ class Bot {
         await ctx.scene.enter('moderate');
       }
     });
-    this.bot.command('createEvent', async ctx => {
+    this.bot.command('createEvent', async (ctx) => {
       if (
         ctx.from.id === parseInt(this.configService.get('TG_MODERATOR_ID'), 10)
       ) {
         await ctx.scene.enter('botEventName');
       }
-    })
+    });
     this.bot.on('message', (ctx) => ctx.reply('Спробуй /start'));
   }
 

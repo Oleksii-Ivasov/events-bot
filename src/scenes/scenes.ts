@@ -699,7 +699,7 @@ export class SceneGenerator {
             matchingCities.push(matchingOfType[0]);
           }
         }
-        ctx.session.userForm.coordinates = undefined;
+        ctx.session.userForm.coordinates = null;
         if (matchingCities.length > 0) {
           ctx.session.userForm.actualLocation =
             matchingCities[0].item.original.toLowerCase();
@@ -1607,7 +1607,7 @@ export class SceneGenerator {
       );
       this.botEvent.mediaIds = [];
     });
-    botEventPhoto.on('photo', async ctx => {
+    botEventPhoto.on('photo', async (ctx) => {
       const photos = ctx.message.photo;
       photos.sort((a, b) => {
         const resolutionA = a.width * a.height;
@@ -1615,10 +1615,10 @@ export class SceneGenerator {
         return resolutionB - resolutionA;
       });
       await handleMediaUpload(ctx, 'photo', photos[0].file_id);
-    })
-    botEventPhoto.on('video', async ctx => {
+    });
+    botEventPhoto.on('video', async (ctx) => {
       await handleMediaUpload(ctx, 'video', ctx.message.video.file_id);
-    })
+    });
     botEventPhoto.hears('Це все, зберегти медіа', async (ctx) => {
       await this.db.collection('bot_events').insertOne(this.botEvent);
       await ctx.reply('Подію успішно створено 🥳');
@@ -1663,7 +1663,7 @@ export class SceneGenerator {
           try {
             await this.showBotEvent(events, currentEventIndex, ctx);
           } catch (error) {
-            console.error('Error showing bot event: ', error)
+            console.error('Error showing bot event: ', error);
           }
         } else {
           await ctx.reply(
@@ -1681,7 +1681,7 @@ export class SceneGenerator {
           eventId: 0,
         };
       }
-      ctx.session.eventDetails.eventId =  events[currentEventIndex].eventId;
+      ctx.session.eventDetails.eventId = events[currentEventIndex].eventId;
       currentEventIndex++;
       await ctx.scene.enter('botEventLookingFor');
     });
@@ -3765,6 +3765,16 @@ export class SceneGenerator {
     return likeArchive;
   }
 
+  referralScene(): Scenes.BaseScene<MySceneContext> {
+    const referral = new Scenes.BaseScene<MySceneContext>('referral');
+    referral.enter(async (ctx) => {
+      await ctx.reply(
+        `Ваше особисте посилання для запрошення: https://t.me/DemoPS_bot?start=${ctx.session.userForm.referralToken}`
+      );
+    });
+    return referral;
+  }
+
   promocodeScene(): Scenes.BaseScene<MySceneContext> {
     const promocode = new Scenes.BaseScene<MySceneContext>('promocode');
     promocode.enter(async (ctx) => {
@@ -4312,20 +4322,20 @@ export class SceneGenerator {
         { parse_mode: 'Markdown' }
       );
     });
-    help.command('moderate', async ctx => {
+    help.command('moderate', async (ctx) => {
       if (
         ctx.from.id === parseInt(this.configService.get('TG_MODERATOR_ID'), 10)
       ) {
         await ctx.scene.enter('moderate');
       }
-    })
-    help.command('createEvent', async ctx => {
+    });
+    help.command('createEvent', async (ctx) => {
       if (
         ctx.from.id === parseInt(this.configService.get('TG_MODERATOR_ID'), 10)
       ) {
         await ctx.scene.enter('botEventName');
       }
-    })
+    });
     this.addCommands(help);
     help.on('message', async (ctx) => {
       await ctx.reply(
@@ -4389,6 +4399,22 @@ ${complaintsList}`;
         scene.hears('👤 Створити профіль', async (ctx) => {
           await ctx.scene.enter('userform');
         });
+        const referralToken = ctx.message.text.split(' ')[1];
+        if (referralToken) {
+          const referrerUser = await this.db
+            .collection('users')
+            .findOne({ referralToken });
+          if (referrerUser) {
+            const updatedReferees = [...referrerUser.referees, ctx.from.id];
+            await this.db
+              .collection('users')
+              .updateOne(
+                { userId: referrerUser.userId },
+                { $set: { referees: updatedReferees } },
+                { upsert: true }
+              );
+          }
+        }
       }
     });
     scene.command('events', async (ctx) => {
@@ -4411,6 +4437,9 @@ ${complaintsList}`;
     });
     scene.command('code', async (ctx) => {
       await ctx.scene.enter('promocode');
+    });
+    scene.command('referral', async (ctx) => {
+      await ctx.scene.enter('referral');
     });
     scene.hears('🗄 Перейти у архів', async (ctx) => {
       await ctx.scene.enter('likeArchive');
@@ -4478,6 +4507,8 @@ ${complaintsList}`;
               likesCount: userForm.likesCount,
               dislikesCount: userForm.dislikesCount,
               registrationDate: userForm.registrationDate,
+              referralToken: userForm.referralToken,
+              referres: userForm.referees
             },
           }
         );
@@ -4495,6 +4526,10 @@ ${complaintsList}`;
         userFormData.isActive = true;
         userFormData.likesSentCount = 0;
         userFormData.isPremium = false;
+        userFormData.referees = [];
+        userFormData.referralToken = this.generateReferralToken(
+          userFormData.userId
+        );
         await this.db.collection('users').insertOne(userFormData);
       }
     } catch (error) {
@@ -4749,25 +4784,29 @@ ${complaintsList}`;
       ) {
         coordsNull = true;
       }
-      if (
-        ctx.session.userForm?.coordinates &&
-        user?.coordinates &&
-        !coordsNull
-      ) {
-        let unit = 'км';
-        let distance = this.calculateDistance(
-          ctx.session.userForm.coordinates.latitude,
-          ctx.session.userForm.coordinates.longitude,
-          user.coordinates.latitude,
-          user.coordinates.longitude
-        );
-        if (distance < 1) {
-          distance = Math.round(distance * 10) * 100;
-          unit = 'м';
-        } else {
-          distance = Math.round(distance);
+      try {
+        if (
+          ctx.session.userForm.coordinates &&
+          user.coordinates &&
+          !coordsNull
+        ) {
+          let unit = 'км';
+          let distance = this.calculateDistance(
+            ctx.session.userForm.coordinates.latitude,
+            ctx.session.userForm.coordinates.longitude,
+            user.coordinates.latitude,
+            user.coordinates.longitude
+          );
+          if (distance < 1) {
+            distance = Math.round(distance * 10) * 100;
+            unit = 'м';
+          } else {
+            distance = Math.round(distance);
+          }
+          caption = caption + `\n*${distance}${unit}* від вас`;
         }
-        caption = caption + `\n*${distance}${unit}* від вас`;
+      } catch (error) {
+        console.error('Error while calc distance: ', error);
       }
       if (ctx.session.userForm.isPremium) {
         caption =
@@ -4833,21 +4872,25 @@ ${complaintsList}`;
     ) {
       coordsNull = true;
     }
-    if (currentUser?.coordinates && userForm?.coordinates && !coordsNull) {
-      let unit = 'км';
-      let distance = this.calculateDistance(
-        currentUser.coordinates.latitude,
-        currentUser.coordinates.longitude,
-        userForm.coordinates.latitude,
-        userForm.coordinates.longitude
-      );
-      if (distance < 1) {
-        distance = Math.round(distance * 10) * 100;
-        unit = 'м';
-      } else {
-        distance = Math.round(distance);
+    try {
+      if (currentUser.coordinates && userForm.coordinates && !coordsNull) {
+        let unit = 'км';
+        let distance = this.calculateDistance(
+          currentUser.coordinates.latitude,
+          currentUser.coordinates.longitude,
+          userForm.coordinates.latitude,
+          userForm.coordinates.longitude
+        );
+        if (distance < 1) {
+          distance = Math.round(distance * 10) * 100;
+          unit = 'м';
+        } else {
+          distance = Math.round(distance);
+        }
+        caption = caption + `\n*${distance}${unit}* від вас`;
       }
-      caption = caption + `\n*${distance}${unit}* від вас`;
+    } catch (error) {
+      console.error('Error while calc distance: ', error);
     }
     if (currentUser.isPremium) {
       caption =
@@ -5050,5 +5093,18 @@ ${complaintsList}`;
     const distance = earthRadius * c;
 
     return distance;
+  }
+
+  generateReferralToken(userId: number) {
+    const secret = this.configService.get('REFERRAL_TOKEN_SECRET_KEY');
+    const hash = crypto
+      .createHmac('sha256', secret)
+      .update(userId.toString())
+      .digest('hex');
+    const originalToken = Buffer.from(hash, 'hex').slice(0, 16);
+    const truncatedToken = originalToken.slice(0, 8);
+    const base64Token = truncatedToken.toString('base64');
+    const computedToken = base64Token.replace(/=/g, 'X');
+    return computedToken;
   }
 }

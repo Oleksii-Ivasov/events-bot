@@ -11,10 +11,10 @@ export interface UserForm {
     content: string;
   };
   socialLinks?: string[];
-  coordinates?: {
+  coordinates: {
     latitude: number;
     longitude: number;
-  };
+  } | null;
   location: string;
   actualLocation:
     | {
@@ -36,4 +36,6 @@ export interface UserForm {
   likesCount: number;
   dislikesCount: number;
   registrationDate: string;
+  referralToken: string;
+  referees: string[] | [];
 }
