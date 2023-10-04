@@ -18,10 +18,10 @@ import { KeyboardButton } from 'telegraf/typings/core/types/typegram';
 
 const MAX_LIKES_LIMIT = 10;
 const TIME_TO_VIEW_EXPIRE = 60 * 1000; // 1 minute
-const INACTIVE_USER_TIME = 60 * 60 * 2 * 1000; // 2 hour
-const SUBSCRIPTION_DURAION_1MONTH = 60 * 60 * 1000; // 1 hour
-const SUBSCRIPTION_DURAION_6MONTHS = 60 * 60 * 2 * 1000; // 2 hour
-const SUBSCRIPTION_DURAION_1YEAR = 60 * 60 * 3 * 1000; // 3 hour
+//const INACTIVE_USER_TIME = (4 * 24 + 12) * 60 * 60 * 1000; // 4 days 12 hours
+const SUBSCRIPTION_DURATION_1MONTH = 60 * 60 * 1000; // 1 hour
+const SUBSCRIPTION_DURATION_6MONTHS = 60 * 60 * 2 * 1000; // 2 hour
+const SUBSCRIPTION_DURATION_1YEAR = 60 * 60 * 3 * 1000; // 3 hour
 const FIRST_BAN_TIME = 60 * 60 * 1000; // 1 hour
 const SECOND_BAN_TIME = 60 * 60 * 2 * 1000; // 2 hour
 const PERMANENT_BAN_TIME = 60 * 60 * 60 * 60 * 1000;
@@ -35,32 +35,44 @@ export class SceneGenerator {
     private configService: IConfigService
   ) {
     this.connectToMongoDB();
+    // cron.schedule('0 0 */5 * *', async () => { // every 5 days
+    //   try {
+    //     if (!this.isConnectionOpened) {
+    //       await this.client.connect();
+    //     }
+    //     console.log('scheduler works');
+    //     const currentDate = new Date();
+    //     const inactiveThreshold = INACTIVE_USER_TIME;
+    //     const users = await this.db.collection('users').find().toArray();
+    //     for (const user of users) {
+    //       const lastActiveTimestamp = new Date(user.lastActive).getTime();
+    //       const inactiveDuration = currentDate.getTime() - lastActiveTimestamp;
+    //       if (inactiveDuration >= inactiveThreshold) {
+    //         axios.post(
+    //           `https://api.telegram.org/bot${this.configService.get(
+    //             'TOKEN'
+    //           )}/sendMessage`,
+    //           {
+    //             chat_id: user.userId,
+    //             text: 'Тебе давно не було тут',
+    //             disable_notification: true,
+    //           }
+    //         );
+    //       }
+    //     }
+    //   } catch (error) {
+    //     console.error('Inactive notify error: ', error);
+    //   }
+    // });
     cron.schedule('0 */2 * * *', async () => {
       // every 2 hours check
       try {
+        console.log('main scheduler works');
         if (!this.isConnectionOpened) {
           await this.client.connect();
         }
         const currentDate = new Date();
-        const inactiveThreshold = INACTIVE_USER_TIME; // 2 hours
 
-        console.log('scheduler connected');
-        const users = await this.db.collection('users').find().toArray(); // the line where error happens
-        for (const user of users) {
-          const lastActiveTimestamp = new Date(user.lastActive).getTime();
-          const inactiveDuration = currentDate.getTime() - lastActiveTimestamp;
-          if (inactiveDuration >= inactiveThreshold) {
-            axios.post(
-              `https://api.telegram.org/bot${this.configService.get(
-                'TOKEN'
-              )}/sendMessage`,
-              {
-                chat_id: user.userId,
-                text: 'Тебе давно не було тут',
-              }
-            );
-          }
-        }
         const usersToResetLikes = await this.db
           .collection('users')
           .find({
@@ -192,7 +204,7 @@ export class SceneGenerator {
       }
     });
     age.on('message', async (ctx) => {
-      ctx.reply('Давай краще вік');
+      await ctx.reply('Давай краще вік');
     });
     return age;
   }
@@ -200,7 +212,7 @@ export class SceneGenerator {
     const gender = new Scenes.BaseScene<MySceneContext>('gender');
     gender.enter(async (ctx) => {
       const user = await this.getUserFormDataFromDatabase(ctx.from!.id);
-      if (!user) {
+      if (!user && !ctx.session.userForm) {
         ctx.session.userForm = new UserFormModel({});
       } else {
         Object.assign(ctx.session.userForm, user);
@@ -610,6 +622,14 @@ export class SceneGenerator {
         );
         ctx.session.userForm.actualLocation = userLocationName.toLowerCase();
         ctx.session.userForm.location = userLocationName;
+        if (ctx.session.userForm.actualLocation !== 'одеса') {
+          await ctx.reply(
+            '⚠️ На жаль, поки що, цей бот орієнтований на мешканців Одеси, але скоро він буде підтримувати й інші міста, підпишись на канал та слідкуй за оновленнями щоб не пропустити відкриття у твоєму місті',
+            Markup.inlineKeyboard([
+              Markup.button.url('Канал', 'https://t.me/crush_ua'),
+            ])
+          );
+        }
         if (this.isOneTimeChange) {
           this.isOneTimeChange = false;
           await this.updateUserPropertyToDatabase(ctx.session.userForm, {
@@ -704,6 +724,14 @@ export class SceneGenerator {
           ctx.session.userForm.actualLocation =
             matchingCities[0].item.original.toLowerCase();
           ctx.session.userForm.location = ctx.message.text;
+          if (ctx.session.userForm.actualLocation !== 'одеса') {
+            await ctx.reply(
+              '⚠️ На жаль, поки що, цей бот орієнтований на мешканців Одеси, але скоро він буде підтримувати й інші міста, підпишись на канал та слідкуй за оновленнями щоб не пропустити відкриття у твоєму місті',
+              Markup.inlineKeyboard([
+                Markup.button.url('Канал', 'https://t.me/crush_ua'),
+              ])
+            );
+          }
           if (this.isOneTimeChange) {
             this.isOneTimeChange = false;
             await this.updateUserPropertyToDatabase(ctx.session.userForm, {
@@ -718,6 +746,14 @@ export class SceneGenerator {
         } else {
           ctx.session.userForm.location = ctx.message.text;
           ctx.session.userForm.actualLocation = ctx.message.text.toLowerCase();
+          if (ctx.session.userForm.actualLocation !== 'одеса') {
+            await ctx.reply(
+              '⚠️ На жаль, поки що, цей бот орієнтований на мешканців Одеси, але скоро він буде підтримувати й інші міста, підпишись на канал та слідкуй за оновленнями щоб не пропустити відкриття у твоєму місті',
+              Markup.inlineKeyboard([
+                Markup.button.url('Канал', 'https://t.me/crush_ua'),
+              ])
+            );
+          }
           if (this.isOneTimeChange) {
             this.isOneTimeChange = false;
             await this.updateUserPropertyToDatabase(ctx.session.userForm, {
@@ -967,7 +1003,7 @@ export class SceneGenerator {
             `✍🏻 — Редагувати профіль
 🆕 — Додати подію
 🎟 — Мої події
-🗄 — Архів лайків
+🗄 — Архів вподобайок
 ⭐️ — Преміум налаштування`,
             Markup.keyboard([['✍🏻', '🆕', '🎟', '🗄', '⭐️']])
               .oneTime()
@@ -1028,8 +1064,8 @@ export class SceneGenerator {
         await ctx.scene.enter('premiumSettings');
       } else {
         await ctx.reply(
-          'В тебе поки немає преміуму, але ти завжди можеш його придбати',
-          Markup.keyboard([['⭐️ Купити преміум']])
+          'В тебе поки немає преміуму, але ти завжди можеш його придбати або ж просто зняти про наш бот відео та отримати місячну підписку на преміум 🤳',
+          Markup.keyboard([['⭐️ Купити преміум', 'Преміум за відео 🤳']])
             .oneTime()
             .resize()
         );
@@ -1038,13 +1074,16 @@ export class SceneGenerator {
     userFormScene.hears('⭐️ Купити преміум', async (ctx) => {
       await ctx.scene.enter('premiumBenefits');
     });
+    userFormScene.hears('Преміум за відео 🤳', async (ctx) => {
+      await ctx.scene.enter('premiumVideo');
+    });
     this.addCommands(userFormScene);
     userFormScene.on('message', async (ctx) => {
       await ctx.reply(
         `✍🏻 — Редагувати профіль
 🆕 — Додати подію
 🎟 — Мої події
-🗄 — Архів лайків
+🗄 — Архів вподобайок
 ⭐️ — Преміум налаштування`,
         Markup.keyboard([['✍🏻', '🆕', '🎟', '🗄', '⭐️']])
           .oneTime()
@@ -1226,7 +1265,7 @@ export class SceneGenerator {
   eventMenuScene(): Scenes.BaseScene<MySceneContext> {
     const eventMenu = new Scenes.BaseScene<MySceneContext>('eventMenu');
     eventMenu.enter(async (ctx) => {
-      ctx.reply(
+      await ctx.reply(
         `Чудово ) Тепер ти можеш ознайомитися з 
 переліком подій або додати свою`,
         Markup.inlineKeyboard([
@@ -1747,6 +1786,7 @@ export class SceneGenerator {
     let currentEventIndex = 0;
     let eventUserId = 0;
     let eventId = 0;
+    let event: Event | null;
     //let currentUserIndex = 0;
     let events: Event[];
     eventList.enter(async (ctx) => {
@@ -1758,6 +1798,7 @@ export class SceneGenerator {
         Object.assign(ctx.session.userForm, userForm);
         eventUserId = 0;
         eventId = 0;
+        event = null;
         events = (await this.getEventsFromDatabase(
           userForm.userId,
           userForm.gender,
@@ -1803,7 +1844,10 @@ export class SceneGenerator {
         eventUserId
       )) as unknown as UserForm;
       if (eventUser) {
-        const event = await this.getEventFromDatabase(eventUserId, eventId);
+        event = (await this.getEventFromDatabase(
+          eventUserId,
+          eventId
+        )) as unknown as Event;
         if (event) {
           await ctx.editMessageReplyMarkup(undefined);
           const mediaGroup = this.showUserProfile(
@@ -1949,7 +1993,16 @@ export class SceneGenerator {
         if (eventUserId === 0) {
           return;
         }
-        await this.db.collection('matches').insertOne(insertData);
+        const result = await this.db.collection('matches').updateOne(
+          {
+            eventId: eventId,
+            senderId: userId,
+            receiverId: eventUserId,
+            isUserEvent: true,
+          },
+          { $set: insertData },
+          { upsert: true }
+        );
         //               await ctx.telegram.sendPhoto(eventUserId, userForm.photoId, {
         //                 caption: `👀Один краш бажає піти з тобою на запропоновану тобою подію:
 
@@ -1972,21 +2025,28 @@ export class SceneGenerator {
         //                   ],
         //                 },
         //               });
-        try {
-          const message = `👀Один краш відгукнувся на твою подію, щоб переглянути хто це перейди у *архів лайків* 🗄`;
-          await ctx.telegram.sendMessage(eventUserId, message, {
-            parse_mode: 'Markdown',
-            reply_markup: {
-              keyboard: [['🗄 Перейти у архів']],
-              resize_keyboard: true,
-            },
-          });
-        } catch (error) {
-          console.error('Event like error: ', error);
+        if (result.upsertedCount === 1) {
+          try {
+            let message = `👀Один краш відгукнувся на твою подію, щоб переглянути хто це — перейди у *архів вподобайок* 🗄`;
+            if (event) {
+              message = `👀Один краш відгукнувся на твою подію *${event.eventName}*, щоб переглянути хто це — перейди у *архів вподобайок* 🗄`;
+            }
+            await ctx.telegram.sendMessage(eventUserId, message, {
+              parse_mode: 'Markdown',
+              reply_markup: {
+                keyboard: [['🗄 Перейти у архів']],
+                resize_keyboard: true,
+              },
+            });
+          } catch (error) {
+            console.error('Event like error: ', error);
+          }
         }
         await ctx.reply(
-          `Супер! Очікуй на повідомлення від ініціатора події 🥳 Бажаю приємно провести час 👋`,
-          Markup.removeKeyboard()
+          `Супер! Очікуй на повідомлення від ініціатора події 🥳\n\nМожеш розпочати пошук, ознайомитись з іншими подіями або переглянути свій профіль\n👫 — Розпочати звичайний пошук\n🍾 — Ознайомитись з іншими подіями\n👤 — Переглянути свій профіль`,
+          Markup.keyboard([['👫', '🍾', '👤']])
+            .oneTime()
+            .resize()
         );
         await this.db
           .collection('users')
@@ -2005,6 +2065,15 @@ export class SceneGenerator {
       currentEventIndex++;
       await this.showEvent(events, currentEventIndex, ctx);
       eventUserId = 0;
+    });
+    eventList.hears('👫', async (ctx) => {
+      await ctx.scene.enter('lookForMatch');
+    });
+    eventList.hears('🍾', async (ctx) => {
+      await ctx.scene.enter('eventChoose');
+    });
+    eventList.hears('👤', async (ctx) => {
+      await ctx.scene.enter('userform');
     });
     this.addCommands(eventList);
     eventList.on('message', async (ctx) => {
@@ -2194,13 +2263,35 @@ export class SceneGenerator {
     });
     lookForMatch.hears('❤️', async (ctx) => {
       this.isLikeMessage = false;
+      if (
+        ctx.session.userForm.referrerUserId &&
+        !ctx.session.userForm.isRegisteredReferee
+      ) {
+        ctx.session.userForm.isRegisteredReferee = true;
+        await this.db
+          .collection('users')
+          .updateOne(
+            { userId: ctx.session.userForm.referrerUserId },
+            { $push: { referees: ctx.from.id } }
+          );
+        await this.updateUserPropertyToDatabase(ctx.session.userForm, {
+          isRegisteredReferee: ctx.session.userForm.isRegisteredReferee,
+        });
+        await ctx.telegram.sendMessage(
+          ctx.session.userForm.referrerUserId,
+          `✨ За твоїм реферальним запрошенням приєднався один краш\nТвій бонус зараховано`,
+          {
+            parse_mode: 'Markdown',
+          }
+        );
+      }
       await this.registerUserLastActivity(ctx.session.userForm.userId);
       if (
         !ctx.session.userForm.isPremium &&
         ctx.session.userForm.likesSentCount >= MAX_LIKES_LIMIT
       ) {
         await ctx.reply(
-          'Вибач, але ти досяг ліміту лайків на сьогодні, купи преміум підписку або почекай до завтра'
+          'Вибач, але ти досяг ліміту вподобайок на сьогодні, купи преміум підписку або почекай до завтра'
         );
         return;
       }
@@ -2238,7 +2329,7 @@ export class SceneGenerator {
             const userLink = `tg://user?id=${userId}`;
             const mentionMessage =
               username || `[${ctx.from?.first_name}](${userLink})`;
-            let message = `👀Один краш поставив вподобайку твоєму профілю, щоб переглянути хто це перейди у *архів лайків* 🗄`;
+            let message = `👀Один краш поставив вподобайку твоєму профілю, щоб переглянути хто це — перейди у *архів вподобайок* 🗄`;
             await this.db
               .collection('users')
               .updateOne(
@@ -2246,7 +2337,7 @@ export class SceneGenerator {
                 { $inc: { likesCount: 1 } }
               );
             if (this.isLookingForEventMatch) {
-              message = `👀Один краш запрошує тебе кудись, щоб переглянути хто це перейди у *архів лайків* 🗄`;
+              message = `👀Один краш запрошує тебе кудись, щоб переглянути хто це — перейди у *архів вподобайок* 🗄`;
             }
             await ctx.telegram.sendMessage(previousUserId, message, {
               parse_mode: 'Markdown',
@@ -2380,7 +2471,7 @@ export class SceneGenerator {
         ctx.session.userForm.likesSentCount >= MAX_LIKES_LIMIT
       ) {
         await ctx.reply(
-          'Вибач, але ти досяг ліміту лайків на сьогодні, купи преміум підписку або почекай до завтра'
+          'Вибач, але ти досяг ліміту вподобайок на сьогодні, купи преміум підписку або почекай до завтра'
         );
         return;
       }
@@ -2481,7 +2572,7 @@ export class SceneGenerator {
             const userLink = `tg://user?id=${userId}`;
             const mentionMessage =
               username || `[${ctx.from?.first_name}](${userLink})`;
-            let message = `👀Один краш поставив вподобайку твоєму профілю, щоб переглянути хто це перейди у *архів лайків* 🗄`;
+            let message = `👀Один краш поставив вподобайку твоєму профілю, щоб переглянути хто це — перейди у *архів вподобайок* 🗄`;
             await this.db
               .collection('users')
               .updateOne(
@@ -2489,7 +2580,7 @@ export class SceneGenerator {
                 { $inc: { likesCount: 1 } }
               );
             if (this.isLookingForEventMatch) {
-              message = `👀Один краш запрошує тебе кудись, щоб переглянути хто це перейди у *архів лайків* 🗄`;
+              message = `👀Один краш запрошує тебе кудись, щоб переглянути хто це — перейди у *архів вподобайок* 🗄`;
             }
             this.insertData = {
               senderId: userId,
@@ -2516,7 +2607,7 @@ export class SceneGenerator {
             }
             this.isLikeMessage = false;
             await ctx.reply(
-              '✅ Відправили твоє повідомлення',
+              '✅ Відправили твоє повідомлення разом з вподобайкою',
               Markup.keyboard([['❤️', '❤️‍🔥', '👎', '👮‍♂️ Скарга']]).resize()
             );
             currentUserIndex++;
@@ -2603,7 +2694,7 @@ export class SceneGenerator {
               const userLink = `tg://user?id=${userId}`;
               const mentionMessage =
                 username || `[${ctx.from?.first_name}](${userLink})`;
-              let message = `👀Один краш поставив вподобайку твоєму профілю, щоб переглянути хто це перейди у *архів лайків* 🗄`;
+              let message = `👀Один краш поставив вподобайку твоєму профілю, щоб переглянути хто це — перейди у *архів вподобайок* 🗄`;
               await this.db
                 .collection('users')
                 .updateOne(
@@ -2611,7 +2702,7 @@ export class SceneGenerator {
                   { $inc: { likesCount: 1 } }
                 );
               if (this.isLookingForEventMatch) {
-                message = `👀Один краш запрошує тебе кудись, щоб переглянути хто це перейди у *архів лайків* 🗄`;
+                message = `👀Один краш запрошує тебе кудись, щоб переглянути хто це — перейди у *архів вподобайок* 🗄`;
               }
               this.insertData = {
                 senderId: userId,
@@ -2638,7 +2729,7 @@ export class SceneGenerator {
               }
               this.isLikeMessage = false;
               await ctx.reply(
-                '✅ Відправили твоє повідомлення',
+                '✅ Відправили твоє голосове повідомлення разом з вподобайкою',
                 Markup.keyboard([['❤️', '❤️‍🔥', '👎', '👮‍♂️ Скарга']]).resize()
               );
               currentUserIndex++;
@@ -2720,7 +2811,7 @@ export class SceneGenerator {
             const userLink = `tg://user?id=${userId}`;
             const mentionMessage =
               username || `[${ctx.from?.first_name}](${userLink})`;
-            let message = `👀Один краш поставив вподобайку твоєму профілю, щоб переглянути хто це перейди у *архів лайків* 🗄`;
+            let message = `👀Один краш поставив вподобайку твоєму профілю, щоб переглянути хто це — перейди у *архів вподобайок* 🗄`;
             await this.db
               .collection('users')
               .updateOne(
@@ -2728,7 +2819,7 @@ export class SceneGenerator {
                 { $inc: { likesCount: 1 } }
               );
             if (this.isLookingForEventMatch) {
-              message = `👀Один краш запрошує тебе кудись, щоб переглянути хто це перейди у *архів лайків* 🗄`;
+              message = `👀Один краш запрошує тебе кудись, щоб переглянути хто це — перейди у *архів вподобайок* 🗄`;
             }
             const caption = ctx.message.caption || '';
             const photos = ctx.message.photo.sort((a, b) => {
@@ -2762,7 +2853,7 @@ export class SceneGenerator {
             }
             this.isLikeMessage = false;
             await ctx.reply(
-              '✅ Відправили твоє повідомлення',
+              '✅ Відправили твоє фото разом з вподобайкою',
               Markup.keyboard([['❤️', '❤️‍🔥', '👎', '👮‍♂️ Скарга']]).resize()
             );
             currentUserIndex++;
@@ -2849,7 +2940,7 @@ export class SceneGenerator {
               const userLink = `tg://user?id=${userId}`;
               const mentionMessage =
                 username || `[${ctx.from?.first_name}](${userLink})`;
-              let message = `👀Один краш поставив вподобайку твоєму профілю, щоб переглянути хто це перейди у *архів лайків* 🗄`;
+              let message = `👀Один краш поставив вподобайку твоєму профілю, щоб переглянути хто це — перейди у *архів вподобайок* 🗄`;
               await this.db
                 .collection('users')
                 .updateOne(
@@ -2857,7 +2948,7 @@ export class SceneGenerator {
                   { $inc: { likesCount: 1 } }
                 );
               if (this.isLookingForEventMatch) {
-                message = `👀Один краш запрошує тебе кудись, щоб переглянути хто це перейди у *архів лайків* 🗄`;
+                message = `👀Один краш запрошує тебе кудись, щоб переглянути хто це — перейди у *архів вподобайок* 🗄`;
               }
               const caption = ctx.message.caption || '';
               this.insertData = {
@@ -2886,7 +2977,7 @@ export class SceneGenerator {
               }
               this.isLikeMessage = false;
               await ctx.reply(
-                '✅ Відправили твоє повідомлення',
+                '✅ Відправили твоє відео разом з вподобайкою',
                 Markup.keyboard([['❤️', '❤️‍🔥', '👎', '👮‍♂️ Скарга']]).resize()
               );
               currentUserIndex++;
@@ -2973,7 +3064,7 @@ export class SceneGenerator {
               const userLink = `tg://user?id=${userId}`;
               const mentionMessage =
                 username || `[${ctx.from?.first_name}](${userLink})`;
-              let message = `👀Один краш поставив вподобайку твоєму профілю, щоб переглянути хто це перейди у *архів лайків* 🗄`;
+              let message = `👀Один краш поставив вподобайку твоєму профілю, щоб переглянути хто це — перейди у *архів вподобайок* 🗄`;
               await this.db
                 .collection('users')
                 .updateOne(
@@ -2981,7 +3072,7 @@ export class SceneGenerator {
                   { $inc: { likesCount: 1 } }
                 );
               if (this.isLookingForEventMatch) {
-                message = `👀Один краш запрошує тебе кудись, щоб переглянути хто це перейди у *архів лайків* 🗄`;
+                message = `👀Один краш запрошує тебе кудись, щоб переглянути хто це — перейди у *архів вподобайок* 🗄`;
               }
               this.insertData = {
                 senderId: userId,
@@ -3008,7 +3099,7 @@ export class SceneGenerator {
               }
               this.isLikeMessage = false;
               await ctx.reply(
-                '✅ Відправили твоє повідомлення',
+                '✅ Відправили твій кружечок разом з вподобайкою',
                 Markup.keyboard([['❤️', '❤️‍🔥', '👎', '👮‍♂️ Скарга']]).resize()
               );
               currentUserIndex++;
@@ -3402,7 +3493,7 @@ export class SceneGenerator {
         username || `[${ctx.from?.first_name}](${userLink})`;
       try {
         await ctx.reply(
-          `Бажаємо весело провести час 👋\n*Посилання на користувача:* ${matchesArray[0].senderMentionMessage}`,
+          `Метч з крашем відбувся 😍\nПосилання на профіль: ${matchesArray[0].senderMentionMessage}\nБажаю приємно провести час 🫶🏻`,
           {
             parse_mode: 'Markdown',
           }
@@ -3439,18 +3530,25 @@ export class SceneGenerator {
             }
           );
         }
-        let caption = `Ви отримали взаємний лайк. Бажаємо весело провести час 👋\n*Посилання на користувача:* ${mentionMessage}`;
+        let caption = `Твій краш відповів тобі взаємністю 😍\nПосилання на профіль: ${mentionMessage}\nБажаю приємно провести час 🫶🏻`;
         if (isBotEvent) {
-          caption = `Хтось відгукнувся на ваше запрошення. Бажаємо весело провести час 👋\n*Посилання на користувача:* ${mentionMessage}`;
+          const botEvent = await this.db
+            .collection('bot_events')
+            .findOne({ eventId: matchesArray[0].eventId });
+          if (botEvent) {
+            caption = `Твій краш прийняв твоє запрошення на подію *${botEvent.eventName}* 😍\nПосилання на профіль ${mentionMessage}\nБажаю приємно провести час 🫶🏻`;
+          } else {
+            caption = `Твій краш прийняв твоє запрошення на подію 😍\nПосилання на профіль: ${mentionMessage}\nБажаю приємно провести час 🫶🏻`;
+          }
         } else if (isUserEvent && matchesArray[0]?.eventId) {
           const event = await this.getEventFromDatabase(
             matchesArray[0].receiverId,
             matchesArray[0].eventId
           );
           if (event) {
-            caption = `🎉 Краш відповів взаємністю. Бажаємо весело провести час 👋\n\nОбговори деталі з ${mentionMessage} щодо події *${event.eventName}*`;
+            caption = `Твій краш підтвердив спільний візит на подію *${event.eventName}* 😍\nПосилання на профіль: ${mentionMessage}\nБажаю приємно провести час 🫶🏻`;
           } else {
-            caption = `🎉 Краш відповів взаємністю, але схоже він видалив подію\nБажаємо весело провести час 👋\n\n*Посилання на користувача:* ${mentionMessage}`;
+            caption = `Твій краш підтвердив спільний візит на подію, але схоже видалив її\nПосилання на профіль: ${mentionMessage}\nБажаю приємно провести час 🫶🏻`;
           }
         }
         await ctx.telegram.sendMessage(matchesArray[0].senderId, caption, {
@@ -3612,6 +3710,9 @@ export class SceneGenerator {
             },
           ],
         });
+        await ctx.reply(
+          'Ти відхилив вподобайку. Наступного разу точно пощастить 🤞🏻'
+        );
         matchesArray.splice(0, 1);
         if (matchesArray[0]) {
           const user = (await this.db.collection('users').findOne({
@@ -3767,9 +3868,41 @@ export class SceneGenerator {
 
   referralScene(): Scenes.BaseScene<MySceneContext> {
     const referral = new Scenes.BaseScene<MySceneContext>('referral');
+    let user: UserForm;
     referral.enter(async (ctx) => {
+      if (!this.isConnectionOpened) {
+        await this.client.connect();
+      }
+      user = (await this.getUserFormDataFromDatabase(
+        ctx.from!.id
+      )) as unknown as UserForm;
+      if (user) {
+        if (!ctx.session.userForm) {
+          ctx.session.userForm = new UserFormModel({});
+        }
+        Object.assign(ctx.session.userForm, user);
+        await ctx.replyWithMarkdownV2(
+          `Ваше особисте посилання для запрошення: https://t.me/DemoPS_bot?start=${user.referralToken}\nКількість запрошених користувачів: *${user.referees.length}*`.replace(
+            /([_[\]()~`>#+=|{}.!-])/g,
+            '\\$1'
+          )
+        );
+      } else {
+        await ctx.reply(
+          `Спочатку необхідно створити профіль`,
+          Markup.keyboard([['👤 Створити профіль']])
+            .oneTime()
+            .resize()
+        );
+      }
+    });
+    this.addCommands(referral);
+    referral.hears('👤 Створити профіль', async (ctx) => {
+      await ctx.scene.enter('userform');
+    });
+    referral.on('message', async (ctx) => {
       await ctx.reply(
-        `Ваше особисте посилання для запрошення: https://t.me/DemoPS_bot?start=${ctx.session.userForm.referralToken}`
+        `Відправ своє посилання на запрошення другу, і коли він перейде по ньому та вподобає когось, ти отримаєш бонус\nТвоє особисте посаланння для запрошення: https://t.me/DemoPS_bot?start=${user.referralToken}`
       );
     });
     return referral;
@@ -3815,13 +3948,13 @@ export class SceneGenerator {
                   let subscriptionDurationMs = 0;
                   switch (promoCode.premiumPeriod) {
                     case '1 місяць':
-                      subscriptionDurationMs = SUBSCRIPTION_DURAION_1MONTH;
+                      subscriptionDurationMs = SUBSCRIPTION_DURATION_1MONTH;
                       break;
                     case '6 місяців':
-                      subscriptionDurationMs = SUBSCRIPTION_DURAION_6MONTHS;
+                      subscriptionDurationMs = SUBSCRIPTION_DURATION_6MONTHS;
                       break;
                     case '1 рік':
-                      subscriptionDurationMs = SUBSCRIPTION_DURAION_1YEAR;
+                      subscriptionDurationMs = SUBSCRIPTION_DURATION_1YEAR;
                       break;
                   }
                   const premiumEndTime = new Date();
@@ -4006,6 +4139,203 @@ export class SceneGenerator {
     return premiumSettings;
   }
 
+  premiumVideoScene(): Scenes.BaseScene<MySceneContext> {
+    const premiumVideo = new Scenes.BaseScene<MySceneContext>('premiumVideo');
+    premiumVideo.enter(async (ctx) => {
+      await ctx.reply(
+        `*Виконай 3 кроки:*
+
+1️⃣ Вигадай цікаву ідею для відео. Після цього зніми відео 
+2️⃣ Опублікуй в будь-якій соцмережі та скопіюй посилання
+3️⃣ Надішли нам посилання на своє відео. Активація преміуму буде протягом 1 години
+        
+Надсилай посилання на відео нижче 👇🏻`,
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            keyboard: [['🔙 Назад']],
+            resize_keyboard: true,
+          },
+        }
+      );
+    });
+    this.addCommands(premiumVideo);
+    premiumVideo.hears('🔙 Назад', async (ctx) => {
+      await ctx.scene.enter('userform');
+    });
+    premiumVideo.on('text', async (ctx) => {
+      const pattern =
+        /^https?:\/\/(?:www\.)?[-a-zA-Z0-9@:%._\\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:[-a-zA-Z0-9()@:%_\\+.~#?&\\/=]*)$/g;
+
+      if (pattern.test(ctx.message.text)) {
+        await ctx.reply('🎉 Посилання успішно надіслано');
+        await this.db
+          .collection('premium_video')
+          .insertOne({ url: ctx.message.text, userId: ctx.from.id });
+        await ctx.telegram.sendMessage(
+          this.configService.get('TG_MODERATOR_ID'),
+          'Надійшло нове посилання на відео 👀',
+          {
+            reply_markup: {
+              keyboard: [['Переглянути 👀']],
+              resize_keyboard: true,
+            },
+          }
+        );
+      } else {
+        await ctx.reply(
+          'Схоже посилання, яке ти ввів, неправильне\nБудь-ласка, перевір правильність написання та спробуй ще'
+        );
+      }
+    });
+    premiumVideo.on('message', async (ctx) => {
+      await ctx.reply(
+        `*Виконай 3 кроки:*
+
+1️⃣ Вигадай цікаву ідею для відео. Після цього зніми відео 
+2️⃣ Опублікуй в будь-якій соцмережі та скопіюй посилання
+3️⃣ Надішли нам посилання на своє відео. Активація преміуму буде протягом 1 години
+        
+Надсилай посилання на відео нижче 👇🏻`,
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            keyboard: [['🔙 Назад']],
+            resize_keyboard: true,
+          },
+        }
+      );
+    });
+    return premiumVideo;
+  }
+
+  givePremiumForVideoScene(): Scenes.BaseScene<MySceneContext> {
+    const givePremiumForVideo = new Scenes.BaseScene<MySceneContext>(
+      'givePremiumForVideo'
+    );
+    let currentIndex = 0;
+    let users: UserForm[] = [];
+    let urls: { url: string; userId: number }[] = [];
+    givePremiumForVideo.enter(async (ctx) => {
+      try {
+        if (!this.isConnectionOpened) {
+          await this.client.connect();
+        }
+        currentIndex = 0;
+        urls = (await this.db
+          .collection('premium_video')
+          .find()
+          .toArray()) as unknown as { url: string; userId: number }[];
+        const userIds = urls.map((urlObj) => urlObj.userId);
+        users = (await this.db
+          .collection('users')
+          .find({
+            userId: { $in: userIds },
+          })
+          .toArray()) as unknown as UserForm[];
+        if (users.length > 0) {
+          await ctx.reply(`Кількість посилань — *${urls.length}*`, {
+            parse_mode: 'Markdown',
+            reply_markup: {
+              keyboard: [['Дати преміум', 'Не давати', 'Відкласти']],
+              resize_keyboard: true,
+            },
+          });
+          const url = urls[currentIndex];
+          const matchingUser = users.find((user) => user.userId === url.userId);
+          if (matchingUser) {
+            await this.sendUserWithVideoLink(ctx, matchingUser, url.url);
+          } else {
+            await ctx.reply('Схоже такого користувача не існує');
+          }
+        } else {
+          await ctx.reply('Нових посилань немає', Markup.removeKeyboard());
+        }
+      } catch (error) {
+        console.error('Error while looking for users with video url: ', error);
+      }
+    });
+    givePremiumForVideo.hears('Дати преміум', async (ctx) => {
+      try {
+        const premiumEndTime = new Date();
+        premiumEndTime.setTime(
+          premiumEndTime.getTime() + SUBSCRIPTION_DURATION_1MONTH
+        );
+        let url = urls[currentIndex];
+        await this.db.collection('users').updateOne(
+          { userId: url.userId },
+          {
+            $set: {
+              isPremium: true,
+              premiumEndTime: premiumEndTime,
+              likesSentCount: 0,
+            },
+          }
+        );
+        await this.db.collection('premium_video').deleteOne({ url: url.url });
+        await ctx.telegram.sendMessage(
+          url.userId,
+          '🎉 В тебе тепер є преміум на місяць за поширення нашого проєкту'
+        );
+        currentIndex++;
+        if (urls[currentIndex]) {
+          url = urls[currentIndex];
+          const matchingUser = users.find((user) => user.userId === url.userId);
+          if (matchingUser) {
+            await this.sendUserWithVideoLink(ctx, matchingUser, url.url);
+          } else {
+            await ctx.reply('Схоже такого користувача не існує');
+          }
+        } else {
+          await ctx.reply('Схоже це все'), Markup.removeKeyboard();
+        }
+      } catch (error) {
+        console.error('Error giving premium to user for video', error);
+      }
+    });
+    givePremiumForVideo.hears('Не давати', async (ctx) => {
+      try {
+        let url = urls[currentIndex];
+        await this.db.collection('premium_video').deleteOne({ url: url.url });
+        currentIndex++;
+        if (urls[currentIndex]) {
+          url = urls[currentIndex];
+          const matchingUser = users.find((user) => user.userId === url.userId);
+          if (matchingUser) {
+            await this.sendUserWithVideoLink(ctx, matchingUser, url.url);
+          } else {
+            await ctx.reply('Схоже такого користувача не існує');
+          }
+        } else {
+          await ctx.reply('Схоже це все'), Markup.removeKeyboard();
+        }
+      } catch (error) {
+        console.error('Error not giving premium to user for video', error);
+      }
+    });
+    givePremiumForVideo.hears('Відкласти', async (ctx) => {
+      try {
+        let url = urls[currentIndex];
+        currentIndex++;
+        if (urls[currentIndex]) {
+          url = urls[currentIndex];
+          const matchingUser = users.find((user) => user.userId === url.userId);
+          if (matchingUser) {
+            await this.sendUserWithVideoLink(ctx, matchingUser, url.url);
+          } else {
+            await ctx.reply('Схоже такого користувача не існує');
+          }
+        } else {
+          await ctx.reply('Схоже це все'), Markup.removeKeyboard();
+        }
+      } catch (error) {
+        console.error('Error posponing premium to user for video', error);
+      }
+    });
+    this.addCommands(givePremiumForVideo);
+    return givePremiumForVideo;
+  }
+
   moderateScene(): Scenes.BaseScene<MySceneContext> {
     const moderate = new Scenes.BaseScene<MySceneContext>('moderate');
     let currentIndex = 0;
@@ -4014,7 +4344,6 @@ export class SceneGenerator {
     let complaints: any[] = [];
     moderate.enter(async (ctx) => {
       currentIndex = 0;
-
       complaints = await this.db.collection('complaints').find().toArray();
       const reportedUserIds = complaints.map((complaint) => complaint.userId);
       reportedUsers = (await this.db
@@ -4318,7 +4647,9 @@ export class SceneGenerator {
       await ctx.reply(
         `🦸‍♀️ Маєш питання або пропозиції?
       
-Пиши нам сюди [Олексій](tg://user?id=546195130)`,
+Пиши нам сюди [Олексій](tg://user?id=${this.configService.get(
+          'TG_MODERATOR_ID'
+        )})`,
         { parse_mode: 'Markdown' }
       );
     });
@@ -4327,6 +4658,13 @@ export class SceneGenerator {
         ctx.from.id === parseInt(this.configService.get('TG_MODERATOR_ID'), 10)
       ) {
         await ctx.scene.enter('moderate');
+      }
+    });
+    help.command('givePremiumForVideo', async (ctx) => {
+      if (
+        ctx.from.id === parseInt(this.configService.get('TG_MODERATOR_ID'), 10)
+      ) {
+        await ctx.scene.enter('givePremiumForVideo');
       }
     });
     help.command('createEvent', async (ctx) => {
@@ -4341,7 +4679,9 @@ export class SceneGenerator {
       await ctx.reply(
         `🦸‍♀️ Маєш питання або пропозиції?
       
-Пиши нам сюди [Олексій](tg://user?id=546195130)`,
+Пиши нам сюди [Олексій](tg://user?id=${this.configService.get(
+          'TG_MODERATOR_ID'
+        )})`,
         { parse_mode: 'Markdown' }
       );
     });
@@ -4379,6 +4719,27 @@ ${complaintsList}`;
     );
     await ctx.replyWithMediaGroup(mediaGroup);
   }
+  async sendUserWithVideoLink(
+    ctx: MySceneContext,
+    user: UserForm,
+    url: string
+  ) {
+    const message = `*Посилання:* ${url}
+*Id:* ${user.userId}
+*Ім'я:* ${user.username}
+*Вік:* ${user.age}
+*Місто:* ${user.location}
+*Про себе:* ${user.about?.content}`.replace(/([_[\]()~`>#+=|{}.!-])/g, '\\$1');
+    const mediaGroup: MediaGroup = user.mediaIds.map(
+      (mediaObj: { type: string; id: string }, index: number) => ({
+        type: mediaObj.type as 'document',
+        media: mediaObj.id,
+        caption: index === 0 ? message : undefined,
+        parse_mode: index === 0 ? 'MarkdownV2' : undefined,
+      })
+    );
+    await ctx.replyWithMediaGroup(mediaGroup);
+  }
   addCommands(scene: Scenes.BaseScene<MySceneContext>) {
     scene.command('start', async (ctx) => {
       await ctx.reply(`Вітаємо в ком'юніті Crush! 👋🏻
@@ -4387,8 +4748,13 @@ ${complaintsList}`;
       
 Команда Crush’а міцно обійняла тебе🫂`);
       const userForm = await this.getUserFormDataFromDatabase(ctx.from.id);
+      if (!ctx.session.userForm) {
+        ctx.session.userForm = new UserFormModel({});
+      }
+      Object.assign(ctx.session.userForm, userForm);
       if (userForm) {
         await ctx.reply('⬇️⁣');
+        await this.registerUserLastActivity(userForm.userId);
       } else {
         await ctx.reply(
           '⬇️⁣',
@@ -4396,23 +4762,13 @@ ${complaintsList}`;
             .oneTime()
             .resize()
         );
-        scene.hears('👤 Створити профіль', async (ctx) => {
-          await ctx.scene.enter('userform');
-        });
         const referralToken = ctx.message.text.split(' ')[1];
         if (referralToken) {
           const referrerUser = await this.db
             .collection('users')
             .findOne({ referralToken });
           if (referrerUser) {
-            const updatedReferees = [...referrerUser.referees, ctx.from.id];
-            await this.db
-              .collection('users')
-              .updateOne(
-                { userId: referrerUser.userId },
-                { $set: { referees: updatedReferees } },
-                { upsert: true }
-              );
+            ctx.session.userForm.referrerUserId = referrerUser.userId;
           }
         }
       }
@@ -4450,6 +4806,16 @@ ${complaintsList}`;
     scene.hears('🍾 Події', async (ctx) => {
       await ctx.scene.enter('eventChoose');
     });
+    scene.hears('👤 Створити профіль', async (ctx) => {
+      await ctx.scene.enter('userform');
+    });
+    scene.hears('Переглянути 👀', async (ctx) => {
+      if (
+        ctx.from.id === parseInt(this.configService.get('TG_MODERATOR_ID'), 10)
+      ) {
+        await ctx.scene.enter('givePremiumForVideo');
+      }
+    });
     scene.command('premiumTest', async (ctx) => {
       // TEST FUNC DELETE IN PROD!!!!!
       const subscriptionDurationMs = SUBSCRIPTION_DURATION_TEST;
@@ -4466,7 +4832,7 @@ ${complaintsList}`;
           },
         }
       );
-      ctx.telegram.sendMessage(
+      await ctx.telegram.sendMessage(
         this.configService.get('TG_MODERATOR_ID'),
         'В тебе тепер є преміум'
       );
@@ -4508,7 +4874,9 @@ ${complaintsList}`;
               dislikesCount: userForm.dislikesCount,
               registrationDate: userForm.registrationDate,
               referralToken: userForm.referralToken,
-              referres: userForm.referees
+              referres: userForm.referees,
+              referrerUserId: userForm.referrerUserId,
+              isRegisteredReferee: userForm.isRegisteredReferee,
             },
           }
         );
@@ -4527,6 +4895,7 @@ ${complaintsList}`;
         userFormData.likesSentCount = 0;
         userFormData.isPremium = false;
         userFormData.referees = [];
+        userFormData.isRegisteredReferee = false;
         userFormData.referralToken = this.generateReferralToken(
           userFormData.userId
         );

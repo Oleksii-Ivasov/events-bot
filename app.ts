@@ -8,6 +8,7 @@ import { MongoClient, ServerApiVersion } from 'mongodb';
 import express from 'express';
 import bodyParser from 'body-parser';
 import crypto from 'crypto';
+import { UserFormModel } from './src/models/userForm.schema';
 
 const configService = new ConfigService();
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -90,6 +91,8 @@ class Bot {
       this.sceneGenerator.botEventLocationScene(),
       this.sceneGenerator.botEventPhotoScene(),
       this.sceneGenerator.referralScene(),
+      this.sceneGenerator.premiumVideoScene(),
+      this.sceneGenerator.givePremiumForVideoScene()
     ],
     {
       ttl: 2592000,
@@ -211,6 +214,10 @@ class Bot {
       const userForm = await db
         .collection('users')
         .findOne({ userId: ctx.from.id });
+      if (!ctx.session.userForm) {
+        ctx.session.userForm = new UserFormModel({});
+      }
+      Object.assign(ctx.session.userForm, userForm);
       if (userForm) {
         await ctx.reply('⬇️⁣');
       } else {
@@ -224,16 +231,9 @@ class Bot {
         if (referralToken) {
           const referrerUser = await db
             .collection('users')
-            .findOne({ referralToken });
+            .findOne({ referralToken: referralToken });
           if (referrerUser) {
-            const updatedReferees = [...referrerUser.referees, ctx.from.id];
-            await db
-              .collection('users')
-              .updateOne(
-                { userId: referrerUser.userId },
-                { $set: { referees: updatedReferees } },
-                { upsert: true }
-              );
+            ctx.session.userForm.referrerUserId = referrerUser.userId;
           }
         }
       }
@@ -374,7 +374,7 @@ class Bot {
           },
         }
       );
-      this.bot.telegram.sendMessage(
+      await this.bot.telegram.sendMessage(
         this.configService.get('TG_MODERATOR_ID'),
         'В тебе тепер є преміум'
       );

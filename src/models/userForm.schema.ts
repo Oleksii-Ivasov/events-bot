@@ -118,6 +118,15 @@ const userFormSchema = new mongoose.Schema({
     default: [],
     required: true,
   },
+  referrerUserId: {
+    type: Number,
+    default: null,
+    required: true,
+  },
+  isRegisteredReferee: {
+    type: Boolean,
+    required: true
+  }
 });
 
 export const UserFormModel = mongoose.model('UserForm', userFormSchema);

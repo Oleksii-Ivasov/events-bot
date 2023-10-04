@@ -38,4 +38,6 @@ export interface UserForm {
   registrationDate: string;
   referralToken: string;
   referees: string[] | [];
+  referrerUserId: number | null;
+  isRegisteredReferee: boolean;
 }
