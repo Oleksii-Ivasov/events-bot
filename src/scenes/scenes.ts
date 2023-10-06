@@ -1,4 +1,4 @@
-import { Markup, Scenes } from 'telegraf';
+import { Markup, Scenes, TelegramError } from 'telegraf';
 import { MySceneContext } from '../models/context.interface';
 import { UserForm } from '../models/userForm.interface';
 import { UserFormModel } from '../models/userForm.schema';
@@ -89,8 +89,18 @@ export class SceneGenerator {
               { $set: { likesSentCount: 0 } }
             );
         }
-      } catch (error) {
-        console.error('Error reseting user likes: ', error);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } catch (error: any) {
+        if (error instanceof TelegramError) {
+          if (
+            error.description !== 'Bad Request: chat not found' &&
+            error.description !== 'Forbidden: bot was blocked by the user'
+          ) {
+            console.error('Error resetting user likes count:', error);
+          }
+        } else {
+          console.error(error);
+        }
       }
       try {
         const usersToResetSeenLikesCount = await this.db
@@ -107,8 +117,18 @@ export class SceneGenerator {
               { $set: { seenLikesCount: 0 } }
             );
         }
-      } catch (error) {
-        console.error('Error reseting user seenLikes: ', error);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } catch (error: any) {
+        if (error instanceof TelegramError) {
+          if (
+            error.description !== 'Bad Request: chat not found' &&
+            error.description !== 'Forbidden: bot was blocked by the user'
+          ) {
+            console.error('Error resetting unseen likes count:', error);
+          }
+        } else {
+          console.error(error);
+        }
       }
       try {
         const usersToTakeAwayPremium = await this.db
@@ -139,8 +159,18 @@ export class SceneGenerator {
             }
           );
         }
-      } catch (error) {
-        console.error('Error reseting user premium: ', error);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } catch (error: any) {
+        if (error instanceof TelegramError) {
+          if (
+            error.description !== 'Bad Request: chat not found' &&
+            error.description !== 'Forbidden: bot was blocked by the user'
+          ) {
+            console.error('Error resetting user premium:', error);
+          }
+        } else {
+          console.error(error);
+        }
       }
       try {
         const usersToDisableReferralBonuses = await this.db
@@ -150,7 +180,7 @@ export class SceneGenerator {
             referralBonusesEndTime: { $lte: currentDate },
           })
           .toArray();
-          console.log('reset bonus: ', usersToDisableReferralBonuses)
+        console.log('reset bonus: ', usersToDisableReferralBonuses);
         for (const user of usersToDisableReferralBonuses) {
           await this.db.collection('users').updateOne(
             { userId: user.userId },
@@ -162,8 +192,18 @@ export class SceneGenerator {
             }
           );
         }
-      } catch (error) {
-        console.error('Error reseting referral bonuses ', error);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } catch (error: any) {
+        if (error instanceof TelegramError) {
+          if (
+            error.description !== 'Bad Request: chat not found' &&
+            error.description !== 'Forbidden: bot was blocked by the user'
+          ) {
+            console.error('Error resetting referal bonuses', error);
+          }
+        } else {
+          console.error(error);
+        }
       }
     });
   }
@@ -217,7 +257,7 @@ export class SceneGenerator {
     this.addCommands(name);
     name.on('text', async (ctx) => {
       if (ctx.message.text.length > 70) {
-        await ctx.reply(`Занадто довге ім'я, будь-ласка, введи щось коротше`)
+        await ctx.reply(`Занадто довге ім'я, будь-ласка, введи щось коротше`);
       } else {
         ctx.session.userForm.userId = ctx.from.id;
         ctx.session.userForm.username = ctx.message.text;
@@ -247,13 +287,15 @@ export class SceneGenerator {
     this.addCommands(age);
     age.on('text', async (ctx) => {
       const age = Number(ctx.message.text);
-      if (typeof age === 'number' &&!isNaN(age) && age > 16 && age < 100) {
-        ctx.session.userForm.age = age
+      if (typeof age === 'number' && !isNaN(age) && age > 16 && age < 100) {
+        ctx.session.userForm.age = age;
         await ctx.scene.enter('location');
       } else if (typeof age !== 'number' || isNaN(age)) {
         await ctx.reply('Вкажи вік цифрами');
       } else if (age < 17 || age > 99) {
-        await ctx.reply(`На жаль, наш бот має вікові обмеження. Це запроваджено для безпеки неповнолітніх користувачів\n\nДякуємо за розуміння! 🫶🏻`);
+        await ctx.reply(
+          `На жаль, наш бот має вікові обмеження. Це запроваджено для безпеки неповнолітніх користувачів\n\nДякуємо за розуміння! 🫶🏻`
+        );
       }
     });
     age.on('message', async (ctx) => {
@@ -272,7 +314,9 @@ export class SceneGenerator {
       }
       await ctx.reply(
         'Давай створимо твою анкету. Якої ти статі?',
-        Markup.keyboard([['🙋🏼‍♂️ Хлопець', '🙋🏻‍♀️ Дівчина']]).oneTime().resize()
+        Markup.keyboard([['🙋🏼‍♂️ Хлопець', '🙋🏻‍♀️ Дівчина']])
+          .oneTime()
+          .resize()
       );
     });
     this.addCommands(gender);
@@ -287,7 +331,9 @@ export class SceneGenerator {
     gender.on('message', async (ctx) => {
       await ctx.reply(
         'Будь-ласка, обери стать  👇🏻',
-        Markup.keyboard([['🙋🏼‍♂️ Хлопець', '🙋🏻‍♀️ Дівчина']]).oneTime().resize()
+        Markup.keyboard([['🙋🏼‍♂️ Хлопець', '🙋🏻‍♀️ Дівчина']])
+          .oneTime()
+          .resize()
       );
     });
     return gender;
@@ -297,7 +343,9 @@ export class SceneGenerator {
     lookingFor.enter(async (ctx) => {
       await ctx.reply(
         'Кого шукаєш?',
-        Markup.keyboard([['👱🏻‍♂️ Хлопці', '👩🏻 Дівчата', '👫 Неважливо']]).oneTime().resize()
+        Markup.keyboard([['👱🏻‍♂️ Хлопці', '👩🏻 Дівчата', '👫 Неважливо']])
+          .oneTime()
+          .resize()
       );
     });
     this.addCommands(lookingFor);
@@ -338,7 +386,12 @@ export class SceneGenerator {
       }
     });
     lookingFor.on('message', async (ctx) => {
-      await ctx.reply('Обери хто тебе цікавить 👇🏻',  Markup.keyboard([['👱🏻‍♂️ Хлопці', '👩🏻 Дівчата', '👫 Неважливо']]).oneTime().resize());
+      await ctx.reply(
+        'Обери хто тебе цікавить 👇🏻',
+        Markup.keyboard([['👱🏻‍♂️ Хлопці', '👩🏻 Дівчата', '👫 Неважливо']])
+          .oneTime()
+          .resize()
+      );
     });
     return lookingFor;
   }
@@ -354,11 +407,13 @@ export class SceneGenerator {
         ctx.session.userForm.lookingForMinAge &&
         ctx.session.userForm.lookingForMaxAge
       ) {
-        if ( ctx.session.userForm.lookingForMinAge !== 17 && 
-          ctx.session.userForm.lookingForMaxAge !== 99) {
-            const keyboardRange = `${ctx.session.userForm.lookingForMinAge}-${ctx.session.userForm.lookingForMaxAge}`;
-            keyboardButtons.push(keyboardRange);
-          }
+        if (
+          ctx.session.userForm.lookingForMinAge !== 17 &&
+          ctx.session.userForm.lookingForMaxAge !== 99
+        ) {
+          const keyboardRange = `${ctx.session.userForm.lookingForMinAge}-${ctx.session.userForm.lookingForMaxAge}`;
+          keyboardButtons.push(keyboardRange);
+        }
       }
       await ctx.reply(
         'Тепер вкажи віковий діапазон цікавих тобі людей, наприклад 18-22',
@@ -1785,8 +1840,18 @@ export class SceneGenerator {
           currentEventIndex = 0;
           try {
             await this.showBotEvent(events, currentEventIndex, ctx);
-          } catch (error) {
-            console.error('Error showing bot event: ', error);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          } catch (error: any) {
+            if (error instanceof TelegramError) {
+              if (
+                error.description !== 'Bad Request: chat not found' &&
+                error.description !== 'Forbidden: bot was blocked by the user'
+              ) {
+                console.error('Error showing bot event', error);
+              }
+            } else {
+              console.error(error);
+            }
           }
         } else {
           await ctx.reply(
@@ -2122,8 +2187,18 @@ export class SceneGenerator {
                 resize_keyboard: true,
               },
             });
-          } catch (error) {
-            console.error('Event like error: ', error);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          } catch (error: any) {
+            if (error instanceof TelegramError) {
+              if (
+                error.description !== 'Bad Request: chat not found' &&
+                error.description !== 'Forbidden: bot was blocked by the user'
+              ) {
+                console.error('Event like error:', error);
+              }
+            } else {
+              console.error(error);
+            }
           }
         }
         await ctx.reply(
@@ -2535,8 +2610,18 @@ export class SceneGenerator {
                 }
               );
             }
-          } catch (error) {
-            console.error('Error sending notification:', error);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          } catch (error: any) {
+            if (error instanceof TelegramError) {
+              if (
+                error.description !== 'Bad Request: chat not found' &&
+                error.description !== 'Forbidden: bot was blocked by the user'
+              ) {
+                console.error('Error sending  match notification:', error);
+              }
+            } else {
+              console.error(error);
+            }
           }
           if (this.isProfilesWithLocationEnded && !this.isProfilesEnded) {
             userMatchForms = await this.loadProfilesWithoutLocationSpecified(
@@ -2958,8 +3043,18 @@ export class SceneGenerator {
                   upsert: true,
                 }
               );
-            } catch (error) {
-              console.error('Like message send error: ', error);
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            } catch (error: any) {
+              if (error instanceof TelegramError) {
+                if (
+                  error.description !== 'Bad Request: chat not found' &&
+                  error.description !== 'Forbidden: bot was blocked by the user'
+                ) {
+                  console.error('Like message send error :', error);
+                }
+              } else {
+                console.error(error);
+              }
             }
           }
         }
@@ -3079,8 +3174,19 @@ export class SceneGenerator {
                     upsert: true,
                   }
                 );
-              } catch (error) {
-                console.error('Like message send error: ', error);
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              } catch (error: any) {
+                if (error instanceof TelegramError) {
+                  if (
+                    error.description !== 'Bad Request: chat not found' &&
+                    error.description !==
+                      'Forbidden: bot was blocked by the user'
+                  ) {
+                    console.error('Like message send error:', error);
+                  }
+                } else {
+                  console.error(error);
+                }
               }
             }
           }
@@ -3204,8 +3310,18 @@ export class SceneGenerator {
                   upsert: true,
                 }
               );
-            } catch (error) {
-              console.error('Like message send error: ', error);
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            } catch (error: any) {
+              if (error instanceof TelegramError) {
+                if (
+                  error.description !== 'Bad Request: chat not found' &&
+                  error.description !== 'Forbidden: bot was blocked by the user'
+                ) {
+                  console.error('Like message send error:', error);
+                }
+              } else {
+                console.error(error);
+              }
             }
           }
         }
@@ -3327,8 +3443,19 @@ export class SceneGenerator {
                     upsert: true,
                   }
                 );
-              } catch (error) {
-                console.error('Like message send error: ', error);
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              } catch (error: any) {
+                if (error instanceof TelegramError) {
+                  if (
+                    error.description !== 'Bad Request: chat not found' &&
+                    error.description !==
+                      'Forbidden: bot was blocked by the user'
+                  ) {
+                    console.error('Like message send error:', error);
+                  }
+                } else {
+                  console.error(error);
+                }
               }
             }
           }
@@ -3449,8 +3576,19 @@ export class SceneGenerator {
                     upsert: true,
                   }
                 );
-              } catch (error) {
-                console.error('Like message send error: ', error);
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              } catch (error: any) {
+                if (error instanceof TelegramError) {
+                  if (
+                    error.description !== 'Bad Request: chat not found' &&
+                    error.description !==
+                      'Forbidden: bot was blocked by the user'
+                  ) {
+                    console.error('Like message send error:', error);
+                  }
+                } else {
+                  console.error(error);
+                }
               }
             }
           }
@@ -3984,8 +4122,18 @@ export class SceneGenerator {
           await ctx.telegram.sendMessage(matchesArray[0].senderId, caption, {
             parse_mode: 'Markdown',
           });
-        } catch (error) {
-          console.error('Like archive error: ', error);
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } catch (error: any) {
+          if (error instanceof TelegramError) {
+            if (
+              error.description !== 'Bad Request: chat not found' &&
+              error.description !== 'Forbidden: bot was blocked by the user'
+            ) {
+              console.error('Like archive error:', error);
+            }
+          } else {
+            console.error(error);
+          }
         }
         matchesArray.splice(0, 1);
         ctx.session.userForm.seenLikesCount++;
@@ -4380,8 +4528,18 @@ export class SceneGenerator {
             );
           }
         }
-      } catch (error) {
-        console.error('Like archive error: ', error);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } catch (error: any) {
+        if (error instanceof TelegramError) {
+          if (
+            error.description !== 'Bad Request: chat not found' &&
+            error.description !== 'Forbidden: bot was blocked by the user'
+          ) {
+            console.error('Like archive error:', error);
+          }
+        } else {
+          console.error(error);
+        }
       }
     });
     likeArchive.hears('👫', async (ctx) => {
@@ -5142,8 +5300,18 @@ export class SceneGenerator {
               ])
             );
           }
-        } catch (error) {
-          console.error('WayForPay Error:', error);
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } catch (error: any) {
+          if (error instanceof TelegramError) {
+            if (
+              error.description !== 'Bad Request: chat not found' &&
+              error.description !== 'Forbidden: bot was blocked by the user'
+            ) {
+              console.error('WayForPay error', error);
+            }
+          } else {
+            console.error(error);
+          }
         }
       }
     });
@@ -5389,8 +5557,18 @@ ${complaintsList}`;
               ctx.session.userForm.referrerUserId = referrerUser.userId;
             }
           }
-        } catch (error) {
-          console.error('Error detecting user token');
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } catch (error: any) {
+          if (error instanceof TelegramError) {
+            if (
+              error.description !== 'Bad Request: chat not found' &&
+              error.description !== 'Forbidden: bot was blocked by the user'
+            ) {
+              console.error('Error detecting user token:', error);
+            }
+          } else {
+            console.error(error);
+          }
         }
       }
     });
