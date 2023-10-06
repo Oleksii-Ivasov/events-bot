@@ -56,7 +56,7 @@ export class SceneGenerator {
     //           )}/sendMessage`,
     //           {
     //             chat_id: user.userId,
-    //             text: 'Тебе давно не було тут',
+    //             text: 'За час поки тебе тут не було, зʼявилися нові користувачі та цікаві події 👀',
     //             disable_notification: true,
     //           }
     //         );
@@ -180,7 +180,6 @@ export class SceneGenerator {
             referralBonusesEndTime: { $lte: currentDate },
           })
           .toArray();
-        console.log('reset bonus: ', usersToDisableReferralBonuses);
         for (const user of usersToDisableReferralBonuses) {
           await this.db.collection('users').updateOne(
             { userId: user.userId },
@@ -1094,23 +1093,30 @@ export class SceneGenerator {
           let caption =
             `Так виглядає твій профіль:\n\n` +
             (userForm.isPremium && userForm.showPremiumLabel
-              ? `⭐️ *Premium Crush*\n\n`
+              ? `⭐️ <b>Premium Crush</b>\n\n`
               : '') +
-            `*Ім'я:* ${userForm.username}\n*Вік:* ${userForm.age}\n*Місто:* ${userForm.location}`;
+            `<b>Ім'я: </b>${this.escapeHtml(userForm.username)}\n<b>Вік:</b> ${userForm.age}\n<b>Місто:</b> ${this.escapeHtml(userForm.location)}`;
 
           if (userForm.about?.type === 'text') {
-            caption = caption + `\n*Про себе:* ${userForm.about.content}`;
+            caption = caption + this.escapeHtml(`\n<b>Про себе:</b>${this.escapeHtml(userForm.about.content)}`);
           }
           caption =
             caption +
             (userForm.isPremium && userForm.showLikesCount
-              ? `\n\n*❤️ — ${userForm.likesCount ?? 0}*`
+              ? `\n\n<b>❤️ — ${userForm.likesCount ?? 0}</b>`
               : '');
           if (userForm.socialLinks && userForm.socialLinks.length > 0) {
             let message = '';
             for (const link of userForm.socialLinks) {
-              message = message ? message + ' | ' : message + '';
-              message = message + link;
+              const regex = /\[(.*?)\]\((.*?)\)/;
+              const matches = link.match(regex);
+              if (matches) {
+                const linkText = matches[1];
+                const url = matches[2];
+                const formattedLink = `<a href="${this.escapeHtml(url)}">${linkText}</a>`;
+                message = message ? message + ' | ' : message + '';
+                message = message + formattedLink;
+              }
             }
             caption = caption + '\n\n' + message;
           }
@@ -1119,7 +1125,7 @@ export class SceneGenerator {
               type: mediaObj.type as 'document',
               media: mediaObj.id,
               caption: index === 0 ? caption : undefined,
-              parse_mode: index === 0 ? 'Markdown' : undefined,
+              parse_mode: index === 0 ? 'HTML' : undefined,
             })
           );
           await ctx.replyWithMediaGroup(mediaGroup);
@@ -2434,9 +2440,7 @@ export class SceneGenerator {
                 return existingProfile.userId === newProfile.userId;
               });
             });
-            console.log('updatedNewProfiles :', updatedNewProfiles);
             userMatchForms = userMatchForms.concat(updatedNewProfiles);
-            console.log('userMatchForms :', userMatchForms);
             const user = await this.getUserFormDataFromDatabase(ctx.from!.id);
             Object.assign(ctx.session.userForm, user);
           } catch (error) {
@@ -3606,9 +3610,7 @@ export class SceneGenerator {
     });
     lookForMatch.leave(async () => {
       this.isLookingForEventMatch = false;
-      console.log('leave scene');
       if (job) {
-        console.log('leave job');
         job.stop();
       }
     });
@@ -3772,13 +3774,16 @@ export class SceneGenerator {
           (mediaObj: { type: string; id: string }, index: number) => ({
             type: mediaObj.type as 'document',
             media: mediaObj.id,
-            caption: index === 0 ? caption : undefined,
+            caption:
+              index === 0
+                ? caption.replace(/([_*[\]()~`>#+=|{}.!-])/g, '\\$1')
+                : undefined,
             parse_mode: index === 0 ? 'Markdown' : undefined,
           })
         );
         await ctx.replyWithMediaGroup(mediaGroup);
       } else {
-        await ctx.reply(caption, {
+        await ctx.reply(caption.replace(/([_*[\]()~`>#+=|{}.!-])/g, '\\$1'), {
           parse_mode: 'Markdown',
         });
       }
@@ -4057,13 +4062,21 @@ export class SceneGenerator {
         }
         const userId = ctx.from!.id;
         const userLink = `tg://user?id=${userId}`;
-        const mentionMessage =
+        let mentionMessage =
           username || `[${ctx.from?.first_name}](${userLink})`;
         try {
+          let senderMentionMessage = matchesArray[0].senderMentionMessage
+          const regex = /\[(.*?)\]\((.*?)\)/;
+          const matches = matchesArray[0].senderMentionMessage.match(regex);
+          if (matches) {
+            const firstName = matches[1];
+            const link = matches[2];
+            senderMentionMessage = `<a href="${link}">${this.escapeHtml(firstName)}</a>`;
+          }
           await ctx.reply(
-            `Метч з крашем відбувся 😍\nПосилання на профіль: ${matchesArray[0].senderMentionMessage}\nБажаю приємно провести час 🫶🏻`,
+            `Метч з крашем відбувся 😍\nПосилання на профіль: ${senderMentionMessage}\nБажаю приємно провести час 🫶🏻`,
             {
-              parse_mode: 'Markdown',
+              parse_mode: 'HTML',
             }
           );
           await this.db
@@ -4098,13 +4111,22 @@ export class SceneGenerator {
               }
             );
           }
+          const mentionMessageRegex = /\[(.*?)\]\((.*?)\)/;
+          const mentionMessageMatches = mentionMessage.match(mentionMessageRegex);
+          if (mentionMessageMatches) {
+            const firstName = mentionMessageMatches[1];
+            const link = mentionMessageMatches[2];
+            mentionMessage = `<a href="${link}">${this.escapeHtml(firstName)}</a>`;
+          }
           let caption = `Твій краш відповів тобі взаємністю 😍\nПосилання на профіль: ${mentionMessage}\nБажаю приємно провести час 🫶🏻`;
           if (isBotEvent) {
             const botEvent = await this.db
               .collection('bot_events')
               .findOne({ eventId: matchesArray[0].eventId });
             if (botEvent) {
-              caption = `Твій краш прийняв твоє запрошення на подію *${botEvent.eventName}* 😍\nПосилання на профіль ${mentionMessage}\nБажаю приємно провести час 🫶🏻`;
+              caption = `Твій краш прийняв твоє запрошення на подію *${
+                botEvent.eventName
+              }* 😍\nПосилання на профіль ${mentionMessage}\nБажаю приємно провести час 🫶🏻`;
             } else {
               caption = `Твій краш прийняв твоє запрошення на подію 😍\nПосилання на профіль: ${mentionMessage}\nБажаю приємно провести час 🫶🏻`;
             }
@@ -4114,13 +4136,15 @@ export class SceneGenerator {
               matchesArray[0].eventId
             );
             if (event) {
-              caption = `Твій краш підтвердив спільний візит на подію *${event.eventName}* 😍\nПосилання на профіль: ${mentionMessage}\nБажаю приємно провести час 🫶🏻`;
+              caption = `Твій краш підтвердив спільний візит на подію *${
+                event.eventName
+              }* 😍\nПосилання на профіль: ${mentionMessage}\nБажаю приємно провести час 🫶🏻`;
             } else {
               caption = `Твій краш підтвердив спільний візит на подію, але схоже видалив її\nПосилання на профіль: ${mentionMessage}\nБажаю приємно провести час 🫶🏻`;
             }
           }
           await ctx.telegram.sendMessage(matchesArray[0].senderId, caption, {
-            parse_mode: 'Markdown',
+            parse_mode: 'HTML',
           });
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
         } catch (error: any) {
@@ -4572,7 +4596,7 @@ export class SceneGenerator {
           ctx.session.userForm.canGetPremiumForReferrees
         ) {
           await ctx.replyWithMarkdownV2(
-            `Запроси друзів і за кожного отримаєш необмежену кількісь вподобайок та переглядів метчів на добу, а якщо запросиш 5 друзів, отримаєш преміум підписку на місяць ⭐️\nВаше особисте посилання для запрошення: https://t.me/DemoPS_bot?start=${user.referralToken}\nКількість запрошених користувачів: *${user.referees.length}*\n\nБонуси зарахуються коли друг створить свій профіль на вподобає хоча б одну людину\n\nВітаю, ти можеш отримати безкоштовний преміум на місяць 🥳`.replace(
+            `Запроси друзів і за кожного отримаєш необмежену кількісь вподобайок та переглядів метчів на добу, а якщо запросиш 5 друзів, отримаєш преміум підписку на місяць ⭐️\nВаше особисте посилання для запрошення: https://t.me/DemoPS_bot?start=${user.referralToken}\nКількість запрошених користувачів: *${user.referees.length}*\n\nБонуси зарахуються коли друг створить свій профіль та вподобає хоча б одну людину\n\nВітаю, ти можеш отримати безкоштовний преміум на місяць 🥳`.replace(
               /([_[\]()~`>#+=|{}.!-])/g,
               '\\$1'
             ),
@@ -4582,7 +4606,7 @@ export class SceneGenerator {
           );
         } else {
           await ctx.replyWithMarkdownV2(
-            `Запроси друзів і за кожного отримаєш необмежену кількісь вподобайок та переглядів метчів на добу, а якщо запросиш 5 друзів, отримаєш преміум підписку на місяць ⭐️\nВаше особисте посилання для запрошення: https://t.me/DemoPS_bot?start=${user.referralToken}\nКількість запрошених користувачів: *${user.referees.length}*\n\nБонуси зарахуються коли друг створить свій профіль на вподобає хоча б одну людину`.replace(
+            `Запроси друзів і за кожного отримаєш необмежену кількісь вподобайок та переглядів метчів на добу, а якщо запросиш 5 друзів, отримаєш преміум підписку на місяць ⭐️\nВаше особисте посилання для запрошення: https://t.me/DemoPS_bot?start=${user.referralToken}\nКількість запрошених користувачів: *${user.referees.length}*\n\nБонуси зарахуються коли друг створить свій профіль та вподобає хоча б одну людину`.replace(
               /([_[\]()~`>#+=|{}.!-])/g,
               '\\$1'
             )
@@ -4621,7 +4645,7 @@ export class SceneGenerator {
     });
     referral.on('message', async (ctx) => {
       await ctx.replyWithMarkdownV2(
-        `Запроси друзів і за кожного отримаєш необмежену кількісь вподобайок та переглядів метчів на добу, а якщо запросиш 5 друзів, отримаєш преміум підписку на місяць ⭐️\nВаше особисте посилання для запрошення: https://t.me/DemoPS_bot?start=${user.referralToken}\nКількість запрошених користувачів: *${user.referees.length}*\n\nБонуси зарахуються коли друг створить свій профіль на вподобає хоча б одну людину`.replace(
+        `Запроси друзів і за кожного отримаєш необмежену кількісь вподобайок та переглядів метчів на добу, а якщо запросиш 5 друзів, отримаєш преміум підписку на місяць ⭐️\nВаше особисте посилання для запрошення: https://t.me/DemoPS_bot?start=${user.referralToken}\nКількість запрошених користувачів: *${user.referees.length}*\n\nБонуси зарахуються коли друг створить свій профіль та вподобає хоча б одну людину`.replace(
           /([_[\]()~`>#+=|{}.!-])/g,
           '\\$1'
         )
@@ -5299,6 +5323,10 @@ export class SceneGenerator {
                 Markup.button.url('Купити підписку', invoiceUrl),
               ])
             );
+          } else {
+            await ctx.reply(
+              'Виникли деякі технічні проблеми, будь-ласка, спробуй пізніше'
+            );
           }
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
         } catch (error: any) {
@@ -5942,15 +5970,15 @@ ${complaintsList}`;
     const user = userArrayFromDB[currentIndex];
     if (user) {
       let caption =
-        (user.isPremium && user.showPremiumLabel
-          ? `⭐️ *Premium Crush*\n\n`
-          : '') +
-        `*Ім'я:* ${user.username}
-*Вік:* ${user.age}
-*Місто:* ${user.location}`;
-      if (user.about?.type === 'text') {
-        caption = caption + `\n*Про себе:* ${user.about.content}`;
-      }
+      (user.isPremium && user.showPremiumLabel
+        ? `⭐️ <b>Premium Crush<b>\n\n`
+        : '') +
+`<b>Ім'я:</b> ${this.escapeHtml(user.username)}
+<b>Вік:</b> ${user.age}
+<b>Місто:</b> ${this.escapeHtml(user.location)}`;
+    if (user.about?.type === 'text') {
+      caption = caption + `\n<b>Про себе:</b> ${this.escapeHtml(user.about.content)}`;
+    }
       let coordsNull = false;
       if (
         ctx.session.userForm?.coordinates instanceof mongoose.Document &&
@@ -5983,7 +6011,7 @@ ${complaintsList}`;
           } else {
             distance = Math.round(distance);
           }
-          caption = caption + `\n*${distance}${unit}* від вас`;
+          caption = caption + `\n<b>${distance}${unit}</b> від вас`;
         }
       } catch (error) {
         console.error('Error while calc distance: ', error);
@@ -5992,14 +6020,21 @@ ${complaintsList}`;
         caption =
           caption +
           (!user.isPremium || (user.isPremium && user.showLikesCount)
-            ? `\n\n*❤️ — ${user.likesCount ?? 0}*`
+            ? `\n\n<b>❤️ — ${user.likesCount ?? 0}</b>`
             : '');
       }
       if (user.socialLinks && user.socialLinks.length > 0) {
         let message = '';
         for (const link of user.socialLinks) {
-          message = message ? message + ' | ' : message + '';
-          message = message + link;
+          const regex = /\[(.*?)\]\((.*?)\)/;
+          const matches = link.match(regex);
+          if (matches) {
+            const linkText = matches[1];
+            const url = matches[2];
+            const formattedLink = `<a href="${this.escapeHtml(url)}">${linkText}</a>`;
+            message = message ? message + ' | ' : message + '';
+            message = message + formattedLink;
+          }
         }
         caption = caption + '\n\n' + message;
       }
@@ -6008,7 +6043,7 @@ ${complaintsList}`;
           type: mediaObj.type as 'document',
           media: mediaObj.id,
           caption: index === 0 ? caption : undefined,
-          parse_mode: index === 0 ? 'Markdown' : undefined,
+          parse_mode: index === 0 ? 'HTML' : undefined,
         })
       );
       await ctx.replyWithMediaGroup(mediaGroup);
@@ -6031,14 +6066,16 @@ ${complaintsList}`;
   ): MediaGroup {
     let caption =
       (userForm.isPremium && userForm.showPremiumLabel
-        ? `⭐️ *Premium Crush*\n\n`
+        ? `⭐️ <b>Premium Crush</b>\n\n`
         : '') +
-      `*Ім'я:* ${userForm.username}
-*Вік:* ${userForm.age}
-*Місто:* ${userForm.location}`;
+      `<b>Ім'я:</b> ${this.escapeHtml(userForm.username)}
+<b>Вік:</b> ${userForm.age}
+<b>Місто:</b> ${this.escapeHtml(userForm.location)}`;
+  
     if (userForm.about?.type === 'text') {
-      caption = caption + `\n*Про себе:* ${userForm.about.content}`;
+      caption = caption + `\n<b>Про себе:</b> ${this.escapeHtml(userForm.about.content)}`;
     }
+  
     let coordsNull = false;
     if (
       currentUser?.coordinates instanceof mongoose.Document &&
@@ -6052,6 +6089,7 @@ ${complaintsList}`;
     ) {
       coordsNull = true;
     }
+  
     try {
       if (currentUser.coordinates && userForm.coordinates && !coordsNull) {
         let unit = 'км';
@@ -6061,63 +6099,72 @@ ${complaintsList}`;
           userForm.coordinates.latitude,
           userForm.coordinates.longitude
         );
+  
         if (distance < 1) {
           distance = Math.round(distance * 10) * 100;
           unit = 'м';
         } else {
           distance = Math.round(distance);
         }
-        caption = caption + `\n*${distance}${unit}* від вас`;
+  
+        caption = caption + `\n<b>${distance}${unit}</b> від вас`;
       }
     } catch (error) {
       console.error('Error while calc distance: ', error);
     }
+  
     if (currentUser.isPremium) {
       caption =
         caption +
         (!userForm.isPremium || (userForm.isPremium && userForm.showLikesCount)
-          ? `\n\n*❤️ — ${userForm.likesCount ?? 0}*`
+          ? `\n\n<b>❤️ — ${userForm.likesCount ?? 0}</b>`
           : '');
     }
+  
     if (likeMessage && likeMessage.type === 'text') {
       caption =
         caption +
         '\n' +
-        '*💌 Повідомлення від користувача: *' +
-        likeMessage.content;
+        '<b>💌 Повідомлення від користувача:</b> ' +
+        this.escapeHtml(likeMessage.content);
     }
+  
     if (userForm.socialLinks && userForm.socialLinks.length > 0) {
       let message = '';
       for (const link of userForm.socialLinks) {
-        message = message ? message + ' | ' : message + '';
-        message = message + link;
+        const regex = /\[(.*?)\]\((.*?)\)/;
+        const matches = link.match(regex);
+        if (matches) {
+          const linkText = matches[1];
+          const url = matches[2];
+          const formattedLink = `<a href="${this.escapeHtml(url)}">${linkText}</a>`;
+          message = message ? message + ' | ' : message + '';
+          message = message + formattedLink;
+        }
       }
       caption = caption + '\n\n' + message;
     }
+  
     const mediaGroup: MediaGroup = userForm.mediaIds.map(
       (mediaObj: { type: string; id: string }, index: number) => ({
         type: mediaObj.type as 'document',
         media: mediaObj.id,
-        caption: index === 0 ? caption : undefined,
-        parse_mode: index === 0 ? 'Markdown' : undefined,
+        caption:
+          index === 0
+            ? caption 
+            : undefined,
+        parse_mode: index === 0 ? 'HTML' : undefined,
       })
     );
+  
     return mediaGroup;
   }
+  
   async showEvent(events: Event[], currentIndex: number, ctx: MySceneContext) {
     const event = events[currentIndex];
     if (event) {
       const eventInitiatorId = event.userId.toString();
-      const message = `*Назва події:* ${event.eventName.replace(
-        /([_*[\]()~`>#+=|{}.!-])/g,
-        '\\$1'
-      )}\n*Дата та час події:* ${event.date.replace(
-        /([_*[\]()~`>#+=|{}.!-])/g,
-        '\\$1'
-      )}\n*Місто:* ${event.location?.replace(
-        /([_*[\]()~`>#+=|{}.!-])/g,
-        '\\$1'
-      )}`;
+      const message = `<b>Назва події:</b> ${this.escapeHtml(event.eventName)}\n<b>Дата та час події:</b> ${this.escapeHtml(event.date)}\n<b>Місто:</b> ${this.escapeHtml(event.location)}`;
       const inlineKeyboardMarkup = Markup.inlineKeyboard([
         Markup.button.callback(
           '✅ Хочу піти',
@@ -6127,15 +6174,12 @@ ${complaintsList}`;
       ]);
 
       if (event.about) {
-        await ctx.replyWithMarkdownV2(
-          `${message}\n*Деталі:* ${event.about.replace(
-            /([_*[\]()~`>#+=|{}.!-])/g,
-            '\\$1'
-          )}`,
+        await ctx.replyWithHTML(
+          `${message}\n<b>Деталі:</b> ${this.escapeHtml(event.about)}`,
           inlineKeyboardMarkup
         );
       } else {
-        await ctx.replyWithMarkdownV2(message, inlineKeyboardMarkup);
+        await ctx.replyWithHTML(message, inlineKeyboardMarkup);
       }
     } else {
       await ctx.reply(
@@ -6152,9 +6196,9 @@ ${complaintsList}`;
   ) {
     const event = events[currentIndex];
     if (event) {
-      let caption = `*Назва події:* ${event.eventName}\n*Дата та час події:* ${event.date}\n*Місто:* ${event.location}`;
+      let caption = `<b>Назва події:</b> ${this.escapeHtml(event.eventName)}\n<b>Дата та час події:</b> ${this.escapeHtml(event.date)}\n<b>Місто:</b> ${this.escapeHtml(event.location)}`;
       if (event.about) {
-        caption = `${caption}\n*Деталі: * ${event.about}`;
+        caption = `${caption}\n<b>Деталі:<b> ${this.escapeHtml(event.about)}`;
       }
       if (event.mediaIds && event.mediaIds.length > 0) {
         const mediaGroup: MediaGroup = event.mediaIds.map(
@@ -6162,14 +6206,14 @@ ${complaintsList}`;
             type: mediaObj.type as 'document',
             media: mediaObj.id,
             caption: index === 0 ? caption : undefined,
-            parse_mode: index === 0 ? 'Markdown' : undefined,
+            parse_mode: index === 0 ? 'HTML' : undefined,
           })
         );
         await ctx.telegram.sendMediaGroup(ctx.from!.id, mediaGroup);
         return;
       }
       await ctx.reply(caption, {
-        parse_mode: 'Markdown',
+        parse_mode: 'HTML',
       });
       return;
     } else {
@@ -6187,16 +6231,7 @@ ${complaintsList}`;
   ) {
     const event = events[currentIndex];
     if (event) {
-      const message = `*Назва події:* ${event.eventName.replace(
-        /([_*[\]()~`>#+=|{}.!-])/g,
-        '\\$1'
-      )}\n*Дата та час події:* ${event.date.replace(
-        /([_*[\]()~`>#+=|{}.!-])/g,
-        '\\$1'
-      )}\n*Місто:* ${event.location.replace(
-        /([_*[\]()~`>#+=|{}.!-])/g,
-        '\\$1'
-      )}`;
+      const message = `<b>Назва події:</b> ${this.escapeHtml(event.eventName)}\n<b>Дата та час події:</b> ${this.escapeHtml(event.date)}\n<b>Місто:</b> ${this.escapeHtml(event.location)}`;
       const inlineKeyboardMarkup = Markup.inlineKeyboard([
         Markup.button.callback(
           '❌ Видалити подію',
@@ -6205,12 +6240,12 @@ ${complaintsList}`;
       ]);
 
       if (event.about) {
-        await ctx.replyWithMarkdownV2(
-          `${message}\n*Деталі:* ${event.about}`,
+        await ctx.replyWithHTML(
+          `${message}\n<b>Деталі:</b> ${this.escapeHtml(event.about)}`,
           inlineKeyboardMarkup
         );
       } else {
-        await ctx.replyWithMarkdownV2(message, inlineKeyboardMarkup);
+        await ctx.replyWithHTML(message, inlineKeyboardMarkup);
       }
     } else {
       await ctx.reply(
@@ -6286,5 +6321,19 @@ ${complaintsList}`;
     const base64Token = truncatedToken.toString('base64');
     const computedToken = base64Token.replace(/=/g, 'X');
     return computedToken;
+  }
+   escapeHtml(text: string): string {
+    const htmlEntities: { [key: string]: string } = {
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#x27;', // &apos; is not recommended
+      '/': '&#x2F;', // Forward slash can be escaped or omitted
+    };
+  
+    return text.replace(/[&<>"'/]/g, (entity) => {
+      return htmlEntities[entity] || entity;
+    });
   }
 }

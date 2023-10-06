@@ -364,7 +364,7 @@ class Bot {
     });
     this.bot.command('premiumTest', async () => {
       // TEST FUNC DELETE IN PROD!!!!!
-      const subscriptionDurationMs = 60 * 60 * 1000; //5 min
+      const subscriptionDurationMs = 60 * 5 * 1000; //5 min
       const premiumEndTime = new Date();
       premiumEndTime.setTime(premiumEndTime.getTime() + subscriptionDurationMs);
       await client.connect();
