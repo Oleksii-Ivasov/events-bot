@@ -1095,10 +1095,16 @@ export class SceneGenerator {
             (userForm.isPremium && userForm.showPremiumLabel
               ? `⭐️ <b>Premium Crush</b>\n\n`
               : '') +
-            `<b>Ім'я: </b>${this.escapeHtml(userForm.username)}\n<b>Вік:</b> ${userForm.age}\n<b>Місто:</b> ${this.escapeHtml(userForm.location)}`;
+            `<b>Ім'я: </b>${this.escapeHtml(userForm.username)}\n<b>Вік:</b> ${
+              userForm.age
+            }\n<b>Місто:</b> ${this.escapeHtml(userForm.location)}`;
 
           if (userForm.about?.type === 'text') {
-            caption = caption + this.escapeHtml(`\n<b>Про себе:</b>${this.escapeHtml(userForm.about.content)}`);
+            caption =
+              caption +
+              this.escapeHtml(
+                `\n<b>Про себе:</b>${this.escapeHtml(userForm.about.content)}`
+              );
           }
           caption =
             caption +
@@ -1113,7 +1119,9 @@ export class SceneGenerator {
               if (matches) {
                 const linkText = matches[1];
                 const url = matches[2];
-                const formattedLink = `<a href="${this.escapeHtml(url)}">${linkText}</a>`;
+                const formattedLink = `<a href="${this.escapeHtml(
+                  url
+                )}">${linkText}</a>`;
                 message = message ? message + ' | ' : message + '';
                 message = message + formattedLink;
               }
@@ -2182,12 +2190,12 @@ export class SceneGenerator {
         //               });
         if (result.upsertedCount === 1) {
           try {
-            let message = `👀Один краш відгукнувся на твою подію, щоб переглянути хто це — перейди у *архів вподобайок* 🗄`;
+            let message = `👀Один краш відгукнувся на твою подію, щоб переглянути хто це — перейди у <b>архів вподобайок</b> 🗄`;
             if (event) {
-              message = `👀Один краш відгукнувся на твою подію *${event.eventName}*, щоб переглянути хто це — перейди у *архів вподобайок* 🗄`;
+              message = `👀Один краш відгукнувся на твою подію <b>${this.escapeHtml(event.eventName)}</b>, щоб переглянути хто це — перейди у <b>архів вподобайок</b> 🗄`;
             }
             await ctx.telegram.sendMessage(eventUserId, message, {
-              parse_mode: 'Markdown',
+              parse_mode: 'HTML',
               reply_markup: {
                 keyboard: [['🗄 Перейти у архів']],
                 resize_keyboard: true,
@@ -3755,19 +3763,19 @@ export class SceneGenerator {
         await ctx.reply('Схоже користувач приховав свій профіль');
       }
     };
-    async function handleBotEvent(
+     const handleBotEvent = async (
       ctx: MySceneContext,
       event: Event,
       isUserEvent: boolean
-    ) {
+    ) => {
       if (isUserEvent) {
         await ctx.reply('👆🏻 Відгукнувся на 👇🏻');
       } else {
         await ctx.reply('👆🏻 Запрошує тебе на 👇🏻');
       }
-      let caption = `*Назва події:* ${event.eventName}\n*Дата та час події:* ${event.date}\n*Місто:* ${event.location}`;
+      let caption = `<b>Назва події:</b> ${this.escapeHtml(event.eventName)}\n<b>Дата та час події:</b> ${this.escapeHtml(event.date)}\n<b>Місто:</b> ${this.escapeHtml(event.location)}`;
       if (event.about) {
-        caption = `${caption}\n*Деталі: * ${event.about}`;
+        caption = `${caption}\n<b>Деталі:</b> ${this.escapeHtml(event.about)}`;
       }
       if (event.mediaIds && event.mediaIds.length > 0) {
         const mediaGroup: MediaGroup = event.mediaIds.map(
@@ -3776,22 +3784,22 @@ export class SceneGenerator {
             media: mediaObj.id,
             caption:
               index === 0
-                ? caption.replace(/([_*[\]()~`>#+=|{}.!-])/g, '\\$1')
+                ? caption
                 : undefined,
-            parse_mode: index === 0 ? 'Markdown' : undefined,
+            parse_mode: index === 0 ? 'HTML' : undefined,
           })
         );
         await ctx.replyWithMediaGroup(mediaGroup);
       } else {
-        await ctx.reply(caption.replace(/([_*[\]()~`>#+=|{}.!-])/g, '\\$1'), {
-          parse_mode: 'Markdown',
+        await ctx.reply(caption, {
+          parse_mode: 'HTML',
         });
       }
     }
     const checkUserViewLikesCount = async (
       ctx: MySceneContext,
-      isUserEvent?: boolean,
-      isBotEvent?: boolean
+      isUserEvent: boolean,
+      isBotEvent: boolean
     ) => {
       if (additionalChannelMembershipCheck) {
         try {
@@ -3847,15 +3855,17 @@ export class SceneGenerator {
         });
         await getUserProfile(matchesArray[0], ctx);
         if (isBotEvent) {
+          console.log(matchesArray[0].eventId)
           const event = (await this.db
             .collection('bot_events')
             .findOne({ eventId: matchesArray[0].eventId })) as unknown as Event;
           if (event) {
             await handleBotEvent(ctx, event, false);
           } else {
-            await ctx.reply('Схоже іцініатор видалив цю подію');
+            await ctx.reply('Схоже інціатор видалив цю подію');
           }
         } else if (isUserEvent) {
+          console.log('isuserevent' ,matchesArray[0].eventId)
           let eventId: number = NaN;
           if (matchesArray[0].eventId) {
             eventId = matchesArray[0].eventId as number;
@@ -3869,7 +3879,7 @@ export class SceneGenerator {
           if (event) {
             await handleBotEvent(ctx, event, true);
           } else {
-            await ctx.reply('Схоже іцініатор видалив цю подію');
+            await ctx.reply('Схоже ініціатор видалив цю подію');
           }
         }
       } else {
@@ -4005,7 +4015,7 @@ export class SceneGenerator {
         await ctx.reply('Вподобайок поки немає');
         return;
       }
-      await checkUserViewLikesCount(ctx);
+      await checkUserViewLikesCount(ctx, isUserEvent, isBotEvent);
     });
     likeArchive.action('premiumBuyScene', async (ctx) => {
       await ctx.reply(
@@ -4031,7 +4041,7 @@ export class SceneGenerator {
         await ctx.reply('Вподобайок поки немає');
         return;
       }
-      await checkUserViewLikesCount(ctx, isBotEvent);
+      await checkUserViewLikesCount(ctx, isUserEvent, isBotEvent);
     });
     likeArchive.hears('💌', async (ctx) => {
       matchesArray = userEventMatches;
@@ -4041,7 +4051,7 @@ export class SceneGenerator {
         await ctx.reply('Вподобайок поки немає');
         return;
       }
-      await checkUserViewLikesCount(ctx, isUserEvent);
+      await checkUserViewLikesCount(ctx, isUserEvent, isBotEvent);
     });
     likeArchive.hears('❤️', async (ctx) => {
       if (
@@ -4065,13 +4075,15 @@ export class SceneGenerator {
         let mentionMessage =
           username || `[${ctx.from?.first_name}](${userLink})`;
         try {
-          let senderMentionMessage = matchesArray[0].senderMentionMessage
+          let senderMentionMessage = matchesArray[0].senderMentionMessage;
           const regex = /\[(.*?)\]\((.*?)\)/;
           const matches = matchesArray[0].senderMentionMessage.match(regex);
           if (matches) {
             const firstName = matches[1];
             const link = matches[2];
-            senderMentionMessage = `<a href="${link}">${this.escapeHtml(firstName)}</a>`;
+            senderMentionMessage = `<a href="${link}">${this.escapeHtml(
+              firstName
+            )}</a>`;
           }
           await ctx.reply(
             `Метч з крашем відбувся 😍\nПосилання на профіль: ${senderMentionMessage}\nБажаю приємно провести час 🫶🏻`,
@@ -4112,11 +4124,14 @@ export class SceneGenerator {
             );
           }
           const mentionMessageRegex = /\[(.*?)\]\((.*?)\)/;
-          const mentionMessageMatches = mentionMessage.match(mentionMessageRegex);
+          const mentionMessageMatches =
+            mentionMessage.match(mentionMessageRegex);
           if (mentionMessageMatches) {
             const firstName = mentionMessageMatches[1];
             const link = mentionMessageMatches[2];
-            mentionMessage = `<a href="${link}">${this.escapeHtml(firstName)}</a>`;
+            mentionMessage = `<a href="${link}">${this.escapeHtml(
+              firstName
+            )}</a>`;
           }
           let caption = `Твій краш відповів тобі взаємністю 😍\nПосилання на профіль: ${mentionMessage}\nБажаю приємно провести час 🫶🏻`;
           if (isBotEvent) {
@@ -4124,9 +4139,7 @@ export class SceneGenerator {
               .collection('bot_events')
               .findOne({ eventId: matchesArray[0].eventId });
             if (botEvent) {
-              caption = `Твій краш прийняв твоє запрошення на подію *${
-                botEvent.eventName
-              }* 😍\nПосилання на профіль ${mentionMessage}\nБажаю приємно провести час 🫶🏻`;
+              caption = `Твій краш прийняв твоє запрошення на подію <b>${botEvent.eventName}</b> 😍\nПосилання на профіль ${mentionMessage}\nБажаю приємно провести час 🫶🏻`;
             } else {
               caption = `Твій краш прийняв твоє запрошення на подію 😍\nПосилання на профіль: ${mentionMessage}\nБажаю приємно провести час 🫶🏻`;
             }
@@ -4136,9 +4149,7 @@ export class SceneGenerator {
               matchesArray[0].eventId
             );
             if (event) {
-              caption = `Твій краш підтвердив спільний візит на подію *${
-                event.eventName
-              }* 😍\nПосилання на профіль: ${mentionMessage}\nБажаю приємно провести час 🫶🏻`;
+              caption = `Твій краш підтвердив спільний візит на подію <b>${event.eventName}</b> 😍\nПосилання на профіль: ${mentionMessage}\nБажаю приємно провести час 🫶🏻`;
             } else {
               caption = `Твій краш підтвердив спільний візит на подію, але схоже видалив її\nПосилання на профіль: ${mentionMessage}\nБажаю приємно провести час 🫶🏻`;
             }
@@ -4236,9 +4247,9 @@ export class SceneGenerator {
             }
             if (isBotEvent && event) {
               await ctx.reply('👆🏻 Запрошує тебе на 👇🏻');
-              let caption = `*Назва події:* ${event.eventName}\n*Дата та час події:* ${event.date}\n*Місто:* ${event.location}`;
+              let caption = `<b>Назва події:</b> ${this.escapeHtml(event.eventName)}\n<b>Дата та час події:</b> ${this.escapeHtml(event.date)}\n<b>Місто:</b> ${this.escapeHtml(event.location)}`;
               if (event.about) {
-                caption = `${caption}\n*Деталі: * ${event.about}`;
+                caption = `${caption}\n<b>Деталі:</b> ${this.escapeHtml(event.about)}`;
               }
               if (event.mediaIds && event.mediaIds.length > 0) {
                 const mediaGroup: MediaGroup = event.mediaIds.map(
@@ -4246,23 +4257,23 @@ export class SceneGenerator {
                     type: mediaObj.type as 'document',
                     media: mediaObj.id,
                     caption: index === 0 ? caption : undefined,
-                    parse_mode: index === 0 ? 'Markdown' : undefined,
+                    parse_mode: index === 0 ? 'HTML' : undefined,
                   })
                 );
                 await ctx.replyWithMediaGroup(mediaGroup);
               } else {
                 await ctx.reply(caption, {
-                  parse_mode: 'Markdown',
+                  parse_mode: 'HTML',
                 });
               }
             } else if (isUserEvent && event) {
               await ctx.reply('👆🏻 Відгукнувся на  👇🏻');
-              let caption = `*Назва події:* ${event.eventName}\n*Дата та час події:* ${event.date}\n*Місто:* ${event.location}`;
+              let caption = `<b>Назва події:</b> ${this.escapeHtml(event.eventName)}\n<b>Дата та час події:</b> ${this.escapeHtml(event.date)}\n<b>Місто:</b> ${this.escapeHtml(event.location)}`;
               if (event.about) {
-                caption = `${caption}\n*Деталі: * ${event.about}`;
+                caption = `${caption}\n<b>Деталі:</b> ${this.escapeHtml(event.about)}`;
               }
               await ctx.reply(caption, {
-                parse_mode: 'Markdown',
+                parse_mode: 'HTML',
               });
             }
           } else {
@@ -4440,36 +4451,33 @@ export class SceneGenerator {
               }
               if (isBotEvent && event) {
                 await ctx.reply('👆🏻 Запрошує тебе на 👇🏻');
-                let caption = `*Назва події:* ${event.eventName}\n*Дата та час події:* ${event.date}\n*Місто:* ${event.location}`;
-                if (event.about) {
-                  caption = `${caption}\n*Деталі: * ${event.about}`;
-                }
-                if (event.mediaIds && event.mediaIds.length > 0) {
-                  const mediaGroup: MediaGroup = event.mediaIds.map(
-                    (
-                      mediaObj: { type: string; id: string },
-                      index: number
-                    ) => ({
-                      type: mediaObj.type as 'document',
-                      media: mediaObj.id,
-                      caption: index === 0 ? caption : undefined,
-                      parse_mode: index === 0 ? 'Markdown' : undefined,
-                    })
-                  );
-                  await ctx.replyWithMediaGroup(mediaGroup);
-                } else {
-                  await ctx.reply(caption, {
-                    parse_mode: 'Markdown',
-                  });
-                }
+                let caption = `<b>Назва події:</b> ${this.escapeHtml(event.eventName)}\n<b>Дата та час події:</b> ${this.escapeHtml(event.date)}\n<b>Місто:</b> ${this.escapeHtml(event.location)}`;
+              if (event.about) {
+                caption = `${caption}\n<b>Деталі:</b> ${this.escapeHtml(event.about)}`;
+              }
+              if (event.mediaIds && event.mediaIds.length > 0) {
+                const mediaGroup: MediaGroup = event.mediaIds.map(
+                  (mediaObj: { type: string; id: string }, index: number) => ({
+                    type: mediaObj.type as 'document',
+                    media: mediaObj.id,
+                    caption: index === 0 ? caption : undefined,
+                    parse_mode: index === 0 ? 'HTML' : undefined,
+                  })
+                );
+                await ctx.replyWithMediaGroup(mediaGroup);
+              } else {
+                await ctx.reply(caption, {
+                  parse_mode: 'HTML',
+                });
+              }
               } else if (isUserEvent && event) {
                 await ctx.reply('👆🏻 Відгукнувся на  👇🏻');
-                let caption = `*Назва події:* ${event.eventName}\n*Дата та час події:* ${event.date}\n*Місто:* ${event.location}`;
+                let caption = `<b>Назва події:</b> ${this.escapeHtml(event.eventName)}\n<b>Дата та час події:</b> ${this.escapeHtml(event.date)}\n<b>Місто:</b> ${this.escapeHtml(event.location)}`;
                 if (event.about) {
-                  caption = `${caption}\n*Деталі: * ${event.about}`;
+                  caption = `${caption}\n<b>Деталі:</b> ${this.escapeHtml(event.about)}`;
                 }
                 await ctx.reply(caption, {
-                  parse_mode: 'Markdown',
+                  parse_mode: 'HTML',
                 });
               }
             } else {
@@ -5970,15 +5978,16 @@ ${complaintsList}`;
     const user = userArrayFromDB[currentIndex];
     if (user) {
       let caption =
-      (user.isPremium && user.showPremiumLabel
-        ? `⭐️ <b>Premium Crush<b>\n\n`
-        : '') +
-`<b>Ім'я:</b> ${this.escapeHtml(user.username)}
+        (user.isPremium && user.showPremiumLabel
+          ? `⭐️ <b>Premium Crush<b>\n\n`
+          : '') +
+        `<b>Ім'я:</b> ${this.escapeHtml(user.username)}
 <b>Вік:</b> ${user.age}
 <b>Місто:</b> ${this.escapeHtml(user.location)}`;
-    if (user.about?.type === 'text') {
-      caption = caption + `\n<b>Про себе:</b> ${this.escapeHtml(user.about.content)}`;
-    }
+      if (user.about?.type === 'text') {
+        caption =
+          caption + `\n<b>Про себе:</b> ${this.escapeHtml(user.about.content)}`;
+      }
       let coordsNull = false;
       if (
         ctx.session.userForm?.coordinates instanceof mongoose.Document &&
@@ -6031,7 +6040,9 @@ ${complaintsList}`;
           if (matches) {
             const linkText = matches[1];
             const url = matches[2];
-            const formattedLink = `<a href="${this.escapeHtml(url)}">${linkText}</a>`;
+            const formattedLink = `<a href="${this.escapeHtml(
+              url
+            )}">${linkText}</a>`;
             message = message ? message + ' | ' : message + '';
             message = message + formattedLink;
           }
@@ -6071,11 +6082,13 @@ ${complaintsList}`;
       `<b>Ім'я:</b> ${this.escapeHtml(userForm.username)}
 <b>Вік:</b> ${userForm.age}
 <b>Місто:</b> ${this.escapeHtml(userForm.location)}`;
-  
+
     if (userForm.about?.type === 'text') {
-      caption = caption + `\n<b>Про себе:</b> ${this.escapeHtml(userForm.about.content)}`;
+      caption =
+        caption +
+        `\n<b>Про себе:</b> ${this.escapeHtml(userForm.about.content)}`;
     }
-  
+
     let coordsNull = false;
     if (
       currentUser?.coordinates instanceof mongoose.Document &&
@@ -6089,7 +6102,7 @@ ${complaintsList}`;
     ) {
       coordsNull = true;
     }
-  
+
     try {
       if (currentUser.coordinates && userForm.coordinates && !coordsNull) {
         let unit = 'км';
@@ -6099,20 +6112,20 @@ ${complaintsList}`;
           userForm.coordinates.latitude,
           userForm.coordinates.longitude
         );
-  
+
         if (distance < 1) {
           distance = Math.round(distance * 10) * 100;
           unit = 'м';
         } else {
           distance = Math.round(distance);
         }
-  
+
         caption = caption + `\n<b>${distance}${unit}</b> від вас`;
       }
     } catch (error) {
       console.error('Error while calc distance: ', error);
     }
-  
+
     if (currentUser.isPremium) {
       caption =
         caption +
@@ -6120,7 +6133,7 @@ ${complaintsList}`;
           ? `\n\n<b>❤️ — ${userForm.likesCount ?? 0}</b>`
           : '');
     }
-  
+
     if (likeMessage && likeMessage.type === 'text') {
       caption =
         caption +
@@ -6128,7 +6141,7 @@ ${complaintsList}`;
         '<b>💌 Повідомлення від користувача:</b> ' +
         this.escapeHtml(likeMessage.content);
     }
-  
+
     if (userForm.socialLinks && userForm.socialLinks.length > 0) {
       let message = '';
       for (const link of userForm.socialLinks) {
@@ -6137,34 +6150,37 @@ ${complaintsList}`;
         if (matches) {
           const linkText = matches[1];
           const url = matches[2];
-          const formattedLink = `<a href="${this.escapeHtml(url)}">${linkText}</a>`;
+          const formattedLink = `<a href="${this.escapeHtml(
+            url
+          )}">${linkText}</a>`;
           message = message ? message + ' | ' : message + '';
           message = message + formattedLink;
         }
       }
       caption = caption + '\n\n' + message;
     }
-  
+
     const mediaGroup: MediaGroup = userForm.mediaIds.map(
       (mediaObj: { type: string; id: string }, index: number) => ({
         type: mediaObj.type as 'document',
         media: mediaObj.id,
-        caption:
-          index === 0
-            ? caption 
-            : undefined,
+        caption: index === 0 ? caption : undefined,
         parse_mode: index === 0 ? 'HTML' : undefined,
       })
     );
-  
+
     return mediaGroup;
   }
-  
+
   async showEvent(events: Event[], currentIndex: number, ctx: MySceneContext) {
     const event = events[currentIndex];
     if (event) {
       const eventInitiatorId = event.userId.toString();
-      const message = `<b>Назва події:</b> ${this.escapeHtml(event.eventName)}\n<b>Дата та час події:</b> ${this.escapeHtml(event.date)}\n<b>Місто:</b> ${this.escapeHtml(event.location)}`;
+      const message = `<b>Назва події:</b> ${this.escapeHtml(
+        event.eventName
+      )}\n<b>Дата та час події:</b> ${this.escapeHtml(
+        event.date
+      )}\n<b>Місто:</b> ${this.escapeHtml(event.location)}`;
       const inlineKeyboardMarkup = Markup.inlineKeyboard([
         Markup.button.callback(
           '✅ Хочу піти',
@@ -6196,9 +6212,13 @@ ${complaintsList}`;
   ) {
     const event = events[currentIndex];
     if (event) {
-      let caption = `<b>Назва події:</b> ${this.escapeHtml(event.eventName)}\n<b>Дата та час події:</b> ${this.escapeHtml(event.date)}\n<b>Місто:</b> ${this.escapeHtml(event.location)}`;
+      let caption = `<b>Назва події:</b> ${this.escapeHtml(
+        event.eventName
+      )}\n<b>Дата та час події:</b> ${this.escapeHtml(
+        event.date
+      )}\n<b>Місто:</b> ${this.escapeHtml(event.location)}`;
       if (event.about) {
-        caption = `${caption}\n<b>Деталі:<b> ${this.escapeHtml(event.about)}`;
+        caption = `${caption}\n<b>Деталі:</b> ${this.escapeHtml(event.about)}`;
       }
       if (event.mediaIds && event.mediaIds.length > 0) {
         const mediaGroup: MediaGroup = event.mediaIds.map(
@@ -6231,7 +6251,11 @@ ${complaintsList}`;
   ) {
     const event = events[currentIndex];
     if (event) {
-      const message = `<b>Назва події:</b> ${this.escapeHtml(event.eventName)}\n<b>Дата та час події:</b> ${this.escapeHtml(event.date)}\n<b>Місто:</b> ${this.escapeHtml(event.location)}`;
+      const message = `<b>Назва події:</b> ${this.escapeHtml(
+        event.eventName
+      )}\n<b>Дата та час події:</b> ${this.escapeHtml(
+        event.date
+      )}\n<b>Місто:</b> ${this.escapeHtml(event.location)}`;
       const inlineKeyboardMarkup = Markup.inlineKeyboard([
         Markup.button.callback(
           '❌ Видалити подію',
@@ -6322,7 +6346,7 @@ ${complaintsList}`;
     const computedToken = base64Token.replace(/=/g, 'X');
     return computedToken;
   }
-   escapeHtml(text: string): string {
+  escapeHtml(text: string): string {
     const htmlEntities: { [key: string]: string } = {
       '&': '&amp;',
       '<': '&lt;',
@@ -6331,7 +6355,7 @@ ${complaintsList}`;
       "'": '&#x27;', // &apos; is not recommended
       '/': '&#x2F;', // Forward slash can be escaped or omitted
     };
-  
+
     return text.replace(/[&<>"'/]/g, (entity) => {
       return htmlEntities[entity] || entity;
     });
