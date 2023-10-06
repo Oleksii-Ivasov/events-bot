@@ -92,7 +92,7 @@ class Bot {
       this.sceneGenerator.botEventPhotoScene(),
       this.sceneGenerator.referralScene(),
       this.sceneGenerator.premiumVideoScene(),
-      this.sceneGenerator.givePremiumForVideoScene()
+      this.sceneGenerator.givePremiumForVideoScene(),
     ],
     {
       ttl: 2592000,
@@ -177,15 +177,16 @@ class Bot {
           userId,
           `В тебе тепер є преміум на ${subscriptionPeriodUa}`
         );
-      } else {
-        console.log(transactionStatusMatch[1]);
-        if (transactionStatusMatch[1] !== 'Refunded') {
-          this.bot.telegram.sendMessage(
-            userId,
-            'Упс, схоже щось пішло не так. Спробуй потім'
-          );
-        }
       }
+      // else {
+      //   console.log(transactionStatusMatch[1]);
+      //   if (transactionStatusMatch[1] !== 'Refunded') {
+      //     this.bot.telegram.sendMessage(
+      //       userId,
+      //       'Упс, схоже щось пішло не так. Спробуй потім'
+      //     );
+      //   }
+      // }
     }
   }
 
@@ -227,14 +228,18 @@ class Bot {
             .oneTime()
             .resize()
         );
-        const referralToken = ctx.message.text.split(' ')[1];
-        if (referralToken) {
-          const referrerUser = await db
-            .collection('users')
-            .findOne({ referralToken: referralToken });
-          if (referrerUser) {
-            ctx.session.userForm.referrerUserId = referrerUser.userId;
+        try {
+          const referralToken = ctx.message.text.split(' ')[1];
+          if (referralToken) {
+            const referrerUser = await db
+              .collection('users')
+              .findOne({ referralToken: referralToken });
+            if (referrerUser) {
+              ctx.session.userForm.referrerUserId = referrerUser.userId;
+            }
           }
+        } catch (error) {
+          console.error('Error detecting user token');
         }
       }
     });

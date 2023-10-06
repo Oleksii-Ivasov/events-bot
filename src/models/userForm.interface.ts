@@ -28,6 +28,7 @@ export interface UserForm {
   }[];
   likesSentCount: number;
   isActive: boolean;
+  isIncognito: boolean,
   isPremium: boolean;
   premiumEndTime?: Date | undefined;
   showPremiumLabel: boolean;
@@ -40,4 +41,9 @@ export interface UserForm {
   referees: string[] | [];
   referrerUserId: number | null;
   isRegisteredReferee: boolean;
+  isSubscribedToChannel: boolean;
+  seenLikesCount: number;
+  isReferralBonusesActive: boolean;
+  referralBonusesEndTime: Date | null;
+  canGetPremiumForReferrees: boolean;
 }

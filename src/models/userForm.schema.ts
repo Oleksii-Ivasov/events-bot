@@ -80,6 +80,10 @@ const userFormSchema = new mongoose.Schema({
     type: Boolean,
     required: true,
   },
+  isIncognito: {
+    type: Boolean,
+    required: true,
+  },
   isPremium: {
     type: Boolean,
     required: true,
@@ -125,8 +129,22 @@ const userFormSchema = new mongoose.Schema({
   },
   isRegisteredReferee: {
     type: Boolean,
-    required: true
-  }
+    required: true,
+  },
+  isSubscribedToChannel: {
+    type: Boolean,
+    required: true,
+  },
+  seenLikesCount: {
+    type: Number,
+    required: true,
+  },
+  isReferralBonusesActive: {
+    type: Boolean,
+    required: true,
+  },
+  referralBonusesEndTime: { type: Date, default: null },
+  canGetPremiumForReferrees: { type: Boolean, required: true },
 });
 
 export const UserFormModel = mongoose.model('UserForm', userFormSchema);
