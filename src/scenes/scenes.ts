@@ -133,7 +133,7 @@ export class SceneGenerator {
       try {
         const matches = await this.db.collection('matches').find().toArray();
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const matchCounts: any = {}; 
+        const matchCounts: any = {};
         for (const match of matches) {
           const receiverId = match.receiverId;
           const senderId = match.senderId;
@@ -142,16 +142,18 @@ export class SceneGenerator {
           }
           matchCounts[receiverId].add(senderId);
         }
-      
+
         for (const receiverId in matchCounts) {
           const matchesCount = matchCounts[receiverId].size;
-        
+
           let message = `👀 Один краш вподобав тебе, щоб переглянути хто це — перейди у *архів вподобайок* 🗄`;
-        if (matchesCount > 1) {
-          message = `👀 Декілька крашів (${matchesCount}) вподобали тебе, щоб переглянути хто це — перейди у *архів вподобайок* 🗄`;
-        }
+          if (matchesCount > 1) {
+            message = `👀 Декілька крашів (${matchesCount}) вподобали тебе, щоб переглянути хто це — перейди у *архів вподобайок* 🗄`;
+          }
           axios.post(
-            `https://api.telegram.org/bot${this.configService.get('TOKEN')}/sendMessage`,
+            `https://api.telegram.org/bot${this.configService.get(
+              'TOKEN'
+            )}/sendMessage`,
             {
               chat_id: receiverId,
               text: message,
@@ -2307,7 +2309,7 @@ export class SceneGenerator {
   private isLikeMessage = false;
   private insertData: Match | undefined;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private userProperties: any= {}
+  private userProperties: any = {};
   lookForMatchScene(): Scenes.BaseScene<MySceneContext> {
     const lookForMatch = new Scenes.BaseScene<MySceneContext>('lookForMatch');
     let userMaxLikesLimit = MAX_LIKES_LIMIT;
@@ -2315,7 +2317,7 @@ export class SceneGenerator {
     let additionalChannelMembershipCheck = false;
     let job: cron.ScheduledTask;
     lookForMatch.enter(async (ctx) => {
-     // pipeline = undefined;
+      // pipeline = undefined;
       this.isProfilesEnded = false;
       this.isLikeMessage = false;
       this.insertData = undefined;
@@ -2337,7 +2339,7 @@ export class SceneGenerator {
           pipeline: [],
           noLocationPipeline: [],
           currentUserIndex: 0,
-        }
+        };
         try {
           const chatMember = await ctx.telegram.getChatMember(
             `@crush_ua`,
@@ -2465,17 +2467,20 @@ export class SceneGenerator {
           .collection('users')
           .aggregate(ctx.session.userMatchDetails.pipeline)
           .toArray()) as unknown as UserForm[];
-          if (ctx.session.userMatchDetails.userMatchForms.length > 0) {
+        if (ctx.session.userMatchDetails.userMatchForms.length > 0) {
           await this.sendUserDetails(
-            ctx.session.userMatchDetails.userMatchForms as unknown as UserForm[],
+            ctx.session.userMatchDetails
+              .userMatchForms as unknown as UserForm[],
             ctx.session.userMatchDetails.currentUserIndex,
             ctx
           );
         } else if (ctx.session.userMatchDetails.userMatchForms.length === 0) {
-          ctx.session.userMatchDetails.userMatchForms = await this.loadProfilesWithoutLocationSpecified(ctx);
+          ctx.session.userMatchDetails.userMatchForms =
+            await this.loadProfilesWithoutLocationSpecified(ctx);
           if (ctx.session.userMatchDetails.userMatchForms.length > 0) {
             await this.sendUserDetails(
-              ctx.session.userMatchDetails.userMatchForms as unknown as UserForm[],
+              ctx.session.userMatchDetails
+                .userMatchForms as unknown as UserForm[],
               ctx.session.userMatchDetails.currentUserIndex,
               ctx
             );
@@ -2490,12 +2495,12 @@ export class SceneGenerator {
           try {
             //every 3 minutes
             console.log('scheduler lookForMatch works!');
-           ctx.session.userMatchDetails.needToUploadNewProfiles = true;
-          //  let userMatchFormsUsername: string[] = []
-          //   userMatchForms.forEach(profile => {
-          //     userMatchFormsUsername.push(profile.username)
-          //   })
-          //   console.log(`userMatchForms ${ctx.session.userForm.userId}: `, userMatchFormsUsername)
+            ctx.session.userMatchDetails.needToUploadNewProfiles = true;
+            //  let userMatchFormsUsername: string[] = []
+            //   userMatchForms.forEach(profile => {
+            //     userMatchFormsUsername.push(profile.username)
+            //   })
+            //   console.log(`userMatchForms ${ctx.session.userForm.userId}: `, userMatchFormsUsername)
             // const user = await this.getUserFormDataFromDatabase(ctx.from!.id);
             // Object.assign(ctx.session.userForm, user);
             // const newProfiles = (await this.db
@@ -2581,6 +2586,60 @@ export class SceneGenerator {
         );
       }
       await this.registerUserLastActivity(ctx.session.userForm.userId);
+      if (ctx.session.userMatchDetails.needToUploadNewProfiles) {
+        const newProfiles = (await this.db
+          .collection('users')
+          .aggregate(ctx.session.userMatchDetails.pipeline)
+          .toArray()) as unknown as UserForm[];
+        const newProfilesUsername: string[] = [];
+        const unseenProfiles =
+          ctx.session.userMatchDetails.userMatchForms.slice(
+            ctx.session.userMatchDetails.currentUserIndex
+          );
+        const unseenProfilesUsername: string[] = [];
+        unseenProfiles.forEach((profile) => {
+          unseenProfilesUsername.push(profile.username);
+        });
+        console.log(
+          `unseenProfiles ${ctx.session.userForm.userId}: `,
+          unseenProfilesUsername
+        );
+        const updatedNewProfiles = newProfiles.filter((newProfile) => {
+          return !unseenProfiles.some(
+            (unseenProfile) => unseenProfile.userId === newProfile.userId
+          );
+        });
+        console.log(updatedNewProfiles.length);
+        newProfiles.length = 0; 
+        newProfiles.push(...updatedNewProfiles);
+        newProfiles.forEach((profile) => {
+          newProfilesUsername.push(profile.username);
+        });
+        console.log(
+          `newProfiles ${ctx.session.userForm.userId}: `,
+          newProfilesUsername
+        );
+        ctx.session.userMatchDetails.userMatchForms =
+          ctx.session.userMatchDetails.userMatchForms.concat(newProfiles);
+        console.log(
+          'userMatchFormsLength: ' + ctx.session.userForm.userId + ' ',
+          ctx.session.userMatchDetails.userMatchForms.length
+        );
+        console.log(
+          'userMatchFormsCurrentIndex: ' + ctx.session.userForm.userId + ' ',
+          ctx.session.userMatchDetails.currentUserIndex
+        );
+        //userMatchForms = userMatchForms.filter((profile) => profile.userId !== ctx.session.userForm.userId);
+        const userMatchFormsUsername: string[] = [];
+        ctx.session.userMatchDetails.userMatchForms.forEach((profile) => {
+          userMatchFormsUsername.push(profile.username);
+        });
+        console.log(
+          `userMatchForms ${ctx.session.userForm.userId}: `,
+          userMatchFormsUsername
+        );
+        ctx.session.userMatchDetails.needToUploadNewProfiles = false;
+      }
       if (additionalChannelMembershipCheck) {
         try {
           const chatMember = await ctx.telegram.getChatMember(
@@ -2632,7 +2691,10 @@ export class SceneGenerator {
           ctx
         );
         if (ctx.session.userMatchDetails.currentUserIndex > 0) {
-          const previousUser = ctx.session.userMatchDetails.userMatchForms[ctx.session.userMatchDetails.currentUserIndex - 1];
+          const previousUser =
+            ctx.session.userMatchDetails.userMatchForms[
+              ctx.session.userMatchDetails.currentUserIndex - 1
+            ];
           const previousUserId = previousUser.userId;
           try {
             const viewerUserId = ctx.session.userForm.userId;
@@ -2711,12 +2773,12 @@ export class SceneGenerator {
             }
           }
           if (this.isProfilesWithLocationEnded && !this.isProfilesEnded) {
-            ctx.session.userMatchDetails.userMatchForms = await this.loadProfilesWithoutLocationSpecified(
-              ctx
-            );
+            ctx.session.userMatchDetails.userMatchForms =
+              await this.loadProfilesWithoutLocationSpecified(ctx);
             ctx.session.userMatchDetails.currentUserIndex = 0;
             this.isProfilesEnded = await this.sendUserDetails(
-              ctx.session.userMatchDetails.userMatchForms as unknown as UserForm[],
+              ctx.session.userMatchDetails
+                .userMatchForms as unknown as UserForm[],
               ctx.session.userMatchDetails.currentUserIndex,
               ctx
             );
@@ -2870,6 +2932,60 @@ export class SceneGenerator {
         );
       }
       await this.registerUserLastActivity(ctx.session.userForm.userId);
+      if (ctx.session.userMatchDetails.needToUploadNewProfiles) {
+        const newProfiles = (await this.db
+          .collection('users')
+          .aggregate(ctx.session.userMatchDetails.pipeline)
+          .toArray()) as unknown as UserForm[];
+        const newProfilesUsername: string[] = [];
+        const unseenProfiles =
+          ctx.session.userMatchDetails.userMatchForms.slice(
+            ctx.session.userMatchDetails.currentUserIndex
+          );
+        const unseenProfilesUsername: string[] = [];
+        unseenProfiles.forEach((profile) => {
+          unseenProfilesUsername.push(profile.username);
+        });
+        console.log(
+          `unseenProfiles ${ctx.session.userForm.userId}: `,
+          unseenProfilesUsername
+        );
+        const updatedNewProfiles = newProfiles.filter((newProfile) => {
+          return !unseenProfiles.some(
+            (unseenProfile) => unseenProfile.userId === newProfile.userId
+          );
+        });
+        console.log(updatedNewProfiles.length);
+        newProfiles.length = 0; 
+        newProfiles.push(...updatedNewProfiles);
+        newProfiles.forEach((profile) => {
+          newProfilesUsername.push(profile.username);
+        });
+        console.log(
+          `newProfiles ${ctx.session.userForm.userId}: `,
+          newProfilesUsername
+        );
+        ctx.session.userMatchDetails.userMatchForms =
+          ctx.session.userMatchDetails.userMatchForms.concat(newProfiles);
+        console.log(
+          'userMatchFormsLength: ' + ctx.session.userForm.userId + ' ',
+          ctx.session.userMatchDetails.userMatchForms.length
+        );
+        console.log(
+          'userMatchFormsCurrentIndex: ' + ctx.session.userForm.userId + ' ',
+          ctx.session.userMatchDetails.currentUserIndex
+        );
+        //userMatchForms = userMatchForms.filter((profile) => profile.userId !== ctx.session.userForm.userId);
+        const userMatchFormsUsername: string[] = [];
+        ctx.session.userMatchDetails.userMatchForms.forEach((profile) => {
+          userMatchFormsUsername.push(profile.username);
+        });
+        console.log(
+          `userMatchForms ${ctx.session.userForm.userId}: `,
+          userMatchFormsUsername
+        );
+        ctx.session.userMatchDetails.needToUploadNewProfiles = false;
+      }
       if (additionalChannelMembershipCheck) {
         try {
           const chatMember = await ctx.telegram.getChatMember(
@@ -2960,55 +3076,59 @@ export class SceneGenerator {
     lookForMatch.hears('👎', async (ctx) => {
       this.isLikeMessage = false;
       await this.registerUserLastActivity(ctx.from.id);
-    if (ctx.session.userMatchDetails.needToUploadNewProfiles) {
-    // Fetch and update user-specific profiles
-         const newProfiles = (await this.db
-              .collection('users')
-              .aggregate(ctx.session.userMatchDetails.pipeline)
-              .toArray()) as unknown as UserForm[];
-              const newProfilesUsername: string[] = []
-              const unseenProfiles = ctx.session.userMatchDetails.userMatchForms.slice(ctx.session.userMatchDetails.currentUserIndex);
-              const unseenProfilesUsername: string[] = []
-              unseenProfiles.forEach(profile => {
-                unseenProfilesUsername.push(profile.username)
-              })
-              console.log(`unseenProfiles ${ctx.session.userForm.userId}: `, unseenProfilesUsername)
-            // const updatedNewProfiles = newProfiles.filter((newProfile) => {
-            //   return !ctx.session.userMatchDetails.userMatchForms.some((existingProfile) => {
-            //     return existingProfile.userId === newProfile.userId;
-            //   });
-            // });
-            // const updatedNewProfilessUsername: string[] = []
-            // updatedNewProfiles.forEach(profile => {
-            //   updatedNewProfilessUsername.push(profile.username)
-            // })
-            // console.log(`updatedNewProfiles ${ctx.session.userForm.userId}: `, updatedNewProfilessUsername)
-            const updatedNewProfiles = newProfiles.filter((newProfile) => {
-              return !unseenProfiles.some((unseenProfile) => unseenProfile.userId === newProfile.userId);
-            });
-            console.log(updatedNewProfiles.length)
-
-            // Update the unseenProfiles array with any new profiles that may appear
-            // (you can fetch them using your logic and append them here)
-            // Example: unseenProfiles.push(...newlyAppearedProfiles);
-          
-            // Assign the updated new profiles to the newProfiles array
-            newProfiles.length = 0; // Clear the existing array
-            newProfiles.push(...updatedNewProfiles);
-            newProfiles.forEach(profile => {
-              newProfilesUsername.push(profile.username)
-            })
-            console.log(`newProfiles ${ctx.session.userForm.userId}: `, newProfilesUsername)
-            ctx.session.userMatchDetails.userMatchForms = ctx.session.userMatchDetails.userMatchForms.concat(newProfiles);
-            console.log('userMatchFormsLength: ' + ctx.session.userForm.userId + ' ', ctx.session.userMatchDetails.userMatchForms.length)
-            console.log('userMatchFormsCurrentIndex: '  + ctx.session.userForm.userId + ' ', ctx.session.userMatchDetails.currentUserIndex)
-            //userMatchForms = userMatchForms.filter((profile) => profile.userId !== ctx.session.userForm.userId);
-             const userMatchFormsUsername: string[] = []
-            ctx.session.userMatchDetails.userMatchForms.forEach(profile => {
-              userMatchFormsUsername.push(profile.username)
-            })
-            console.log(`userMatchForms ${ctx.session.userForm.userId}: `, userMatchFormsUsername)
-            ctx.session.userMatchDetails.needToUploadNewProfiles = false;
+      if (ctx.session.userMatchDetails.needToUploadNewProfiles) {
+        const newProfiles = (await this.db
+          .collection('users')
+          .aggregate(ctx.session.userMatchDetails.pipeline)
+          .toArray()) as unknown as UserForm[];
+        const newProfilesUsername: string[] = [];
+        const unseenProfiles =
+          ctx.session.userMatchDetails.userMatchForms.slice(
+            ctx.session.userMatchDetails.currentUserIndex
+          );
+        const unseenProfilesUsername: string[] = [];
+        unseenProfiles.forEach((profile) => {
+          unseenProfilesUsername.push(profile.username);
+        });
+        console.log(
+          `unseenProfiles ${ctx.session.userForm.userId}: `,
+          unseenProfilesUsername
+        );
+        const updatedNewProfiles = newProfiles.filter((newProfile) => {
+          return !unseenProfiles.some(
+            (unseenProfile) => unseenProfile.userId === newProfile.userId
+          );
+        });
+        console.log(updatedNewProfiles.length);
+        newProfiles.length = 0; 
+        newProfiles.push(...updatedNewProfiles);
+        newProfiles.forEach((profile) => {
+          newProfilesUsername.push(profile.username);
+        });
+        console.log(
+          `newProfiles ${ctx.session.userForm.userId}: `,
+          newProfilesUsername
+        );
+        ctx.session.userMatchDetails.userMatchForms =
+          ctx.session.userMatchDetails.userMatchForms.concat(newProfiles);
+        console.log(
+          'userMatchFormsLength: ' + ctx.session.userForm.userId + ' ',
+          ctx.session.userMatchDetails.userMatchForms.length
+        );
+        console.log(
+          'userMatchFormsCurrentIndex: ' + ctx.session.userForm.userId + ' ',
+          ctx.session.userMatchDetails.currentUserIndex
+        );
+        //userMatchForms = userMatchForms.filter((profile) => profile.userId !== ctx.session.userForm.userId);
+        const userMatchFormsUsername: string[] = [];
+        ctx.session.userMatchDetails.userMatchForms.forEach((profile) => {
+          userMatchFormsUsername.push(profile.username);
+        });
+        console.log(
+          `userMatchForms ${ctx.session.userForm.userId}: `,
+          userMatchFormsUsername
+        );
+        ctx.session.userMatchDetails.needToUploadNewProfiles = false;
       }
       ctx.session.userMatchDetails.currentUserIndex++;
       this.isProfilesWithLocationEnded = await this.sendUserDetails(
@@ -3017,7 +3137,10 @@ export class SceneGenerator {
         ctx
       );
       if (ctx.session.userMatchDetails.currentUserIndex > 0) {
-        const previousUser = ctx.session.userMatchDetails.userMatchForms[ctx.session.userMatchDetails.currentUserIndex - 1];
+        const previousUser =
+          ctx.session.userMatchDetails.userMatchForms[
+            ctx.session.userMatchDetails.currentUserIndex - 1
+          ];
         const previousUserId = previousUser.userId;
         const viewerUserId = ctx.session.userForm.userId;
         if (previousUserId) {
@@ -3035,7 +3158,8 @@ export class SceneGenerator {
         }
       }
       if (this.isProfilesWithLocationEnded && !this.isProfilesEnded) {
-        ctx.session.userMatchDetails.userMatchForms = await this.loadProfilesWithoutLocationSpecified(ctx);
+        ctx.session.userMatchDetails.userMatchForms =
+          await this.loadProfilesWithoutLocationSpecified(ctx);
         ctx.session.userMatchDetails.currentUserIndex = 0;
         this.isProfilesEnded = await this.sendUserDetails(
           ctx.session.userMatchDetails.userMatchForms as unknown as UserForm[],
@@ -3051,7 +3175,10 @@ export class SceneGenerator {
       }
     });
     lookForMatch.hears('👮‍♂️ Скарга', async (ctx) => {
-      this.reportedUserId = ctx.session.userMatchDetails.userMatchForms[ctx.session.userMatchDetails.currentUserIndex]?.userId;
+      this.reportedUserId =
+        ctx.session.userMatchDetails.userMatchForms[
+          ctx.session.userMatchDetails.currentUserIndex
+        ]?.userId;
       ctx.session.userMatchDetails.currentUserIndex++;
       await ctx.scene.enter('complaint');
     });
@@ -3081,7 +3208,10 @@ export class SceneGenerator {
             }
           );
         } else {
-          const previousUser = ctx.session.userMatchDetails.userMatchForms[ctx.session.userMatchDetails.currentUserIndex];
+          const previousUser =
+            ctx.session.userMatchDetails.userMatchForms[
+              ctx.session.userMatchDetails.currentUserIndex
+            ];
           const previousUserId = previousUser.userId;
           const viewerUserId = ctx.session.userForm.userId;
           if (previousUserId) {
@@ -3138,17 +3268,18 @@ export class SceneGenerator {
             );
             ctx.session.userMatchDetails.currentUserIndex++;
             this.isProfilesWithLocationEnded = await this.sendUserDetails(
-              ctx.session.userMatchDetails.userMatchForms as unknown as UserForm[],
+              ctx.session.userMatchDetails
+                .userMatchForms as unknown as UserForm[],
               ctx.session.userMatchDetails.currentUserIndex,
               ctx
             );
             if (this.isProfilesWithLocationEnded && !this.isProfilesEnded) {
-              ctx.session.userMatchDetails.userMatchForms = await this.loadProfilesWithoutLocationSpecified(
-                ctx
-              );
+              ctx.session.userMatchDetails.userMatchForms =
+                await this.loadProfilesWithoutLocationSpecified(ctx);
               ctx.session.userMatchDetails.currentUserIndex = 0;
               this.isProfilesEnded = await this.sendUserDetails(
-                ctx.session.userMatchDetails.userMatchForms as unknown as UserForm[],
+                ctx.session.userMatchDetails
+                  .userMatchForms as unknown as UserForm[],
                 ctx.session.userMatchDetails.currentUserIndex,
                 ctx
               );
@@ -3213,7 +3344,10 @@ export class SceneGenerator {
               'Занадто довге голосове, постарайся вкластись у 60 секунд'
             );
           } else {
-            const previousUser = ctx.session.userMatchDetails.userMatchForms[ctx.session.userMatchDetails.currentUserIndex];
+            const previousUser =
+              ctx.session.userMatchDetails.userMatchForms[
+                ctx.session.userMatchDetails.currentUserIndex
+              ];
             const previousUserId = previousUser.userId;
             const viewerUserId = ctx.session.userForm.userId;
             if (previousUserId) {
@@ -3270,7 +3404,8 @@ export class SceneGenerator {
               );
               ctx.session.userMatchDetails.currentUserIndex++;
               this.isProfilesWithLocationEnded = await this.sendUserDetails(
-                ctx.session.userMatchDetails.userMatchForms as unknown as UserForm[],
+                ctx.session.userMatchDetails
+                  .userMatchForms as unknown as UserForm[],
                 ctx.session.userMatchDetails.currentUserIndex,
                 ctx
               );
@@ -3279,7 +3414,8 @@ export class SceneGenerator {
                   await this.loadProfilesWithoutLocationSpecified(ctx);
                 ctx.session.userMatchDetails.currentUserIndex = 0;
                 this.isProfilesEnded = await this.sendUserDetails(
-                  ctx.session.userMatchDetails.userMatchForms as unknown as UserForm[],
+                  ctx.session.userMatchDetails
+                    .userMatchForms as unknown as UserForm[],
                   ctx.session.userMatchDetails.currentUserIndex,
                   ctx
                 );
@@ -3341,7 +3477,10 @@ export class SceneGenerator {
             'Відправка картинок доступна тільки преміум користувачам'
           );
         } else {
-          const previousUser = ctx.session.userMatchDetails.userMatchForms[ctx.session.userMatchDetails.currentUserIndex];
+          const previousUser =
+            ctx.session.userMatchDetails.userMatchForms[
+              ctx.session.userMatchDetails.currentUserIndex
+            ];
           const previousUserId = previousUser.userId;
           const viewerUserId = ctx.session.userForm.userId;
           if (previousUserId) {
@@ -3405,17 +3544,18 @@ export class SceneGenerator {
             );
             ctx.session.userMatchDetails.currentUserIndex++;
             this.isProfilesWithLocationEnded = await this.sendUserDetails(
-              ctx.session.userMatchDetails.userMatchForms as unknown as UserForm[],
+              ctx.session.userMatchDetails
+                .userMatchForms as unknown as UserForm[],
               ctx.session.userMatchDetails.currentUserIndex,
               ctx
             );
             if (this.isProfilesWithLocationEnded && !this.isProfilesEnded) {
-              ctx.session.userMatchDetails.userMatchForms = await this.loadProfilesWithoutLocationSpecified(
-                ctx
-              );
+              ctx.session.userMatchDetails.userMatchForms =
+                await this.loadProfilesWithoutLocationSpecified(ctx);
               ctx.session.userMatchDetails.currentUserIndex = 0;
               this.isProfilesEnded = await this.sendUserDetails(
-                ctx.session.userMatchDetails.userMatchForms as unknown as UserForm[],
+                ctx.session.userMatchDetails
+                  .userMatchForms as unknown as UserForm[],
                 ctx.session.userMatchDetails.currentUserIndex,
                 ctx
               );
@@ -3480,7 +3620,10 @@ export class SceneGenerator {
               'Відео занадто довге, будь-ласка, відправ відео, яке не довше 60 секунд'
             );
           } else {
-            const previousUser = ctx.session.userMatchDetails.userMatchForms[ctx.session.userMatchDetails.currentUserIndex];
+            const previousUser =
+              ctx.session.userMatchDetails.userMatchForms[
+                ctx.session.userMatchDetails.currentUserIndex
+              ];
             const previousUserId = previousUser.userId;
             const viewerUserId = ctx.session.userForm.userId;
             if (previousUserId) {
@@ -3539,7 +3682,8 @@ export class SceneGenerator {
               );
               ctx.session.userMatchDetails.currentUserIndex++;
               this.isProfilesWithLocationEnded = await this.sendUserDetails(
-                ctx.session.userMatchDetails.userMatchForms as unknown as UserForm[],
+                ctx.session.userMatchDetails
+                  .userMatchForms as unknown as UserForm[],
                 ctx.session.userMatchDetails.currentUserIndex,
                 ctx
               );
@@ -3548,7 +3692,8 @@ export class SceneGenerator {
                   await this.loadProfilesWithoutLocationSpecified(ctx);
                 ctx.session.userMatchDetails.currentUserIndex = 0;
                 this.isProfilesEnded = await this.sendUserDetails(
-                  ctx.session.userMatchDetails.userMatchForms as unknown as UserForm[],
+                  ctx.session.userMatchDetails
+                    .userMatchForms as unknown as UserForm[],
                   ctx.session.userMatchDetails.currentUserIndex,
                   ctx
                 );
@@ -3615,7 +3760,10 @@ export class SceneGenerator {
               'Кружок занадто довгий, будь-ласка, відправ відео, яке не довше 60 секунд'
             );
           } else {
-            const previousUser = ctx.session.userMatchDetails.userMatchForms[ctx.session.userMatchDetails.currentUserIndex];
+            const previousUser =
+              ctx.session.userMatchDetails.userMatchForms[
+                ctx.session.userMatchDetails.currentUserIndex
+              ];
             const previousUserId = previousUser.userId;
             const viewerUserId = ctx.session.userForm.userId;
             if (previousUserId) {
@@ -3672,7 +3820,8 @@ export class SceneGenerator {
               );
               ctx.session.userMatchDetails.currentUserIndex++;
               this.isProfilesWithLocationEnded = await this.sendUserDetails(
-                ctx.session.userMatchDetails.userMatchForms as unknown as UserForm[],
+                ctx.session.userMatchDetails
+                  .userMatchForms as unknown as UserForm[],
                 ctx.session.userMatchDetails.currentUserIndex,
                 ctx
               );
@@ -3681,7 +3830,8 @@ export class SceneGenerator {
                   await this.loadProfilesWithoutLocationSpecified(ctx);
                 ctx.session.userMatchDetails.currentUserIndex = 0;
                 this.isProfilesEnded = await this.sendUserDetails(
-                  ctx.session.userMatchDetails.userMatchForms as unknown as UserForm[],
+                  ctx.session.userMatchDetails
+                    .userMatchForms as unknown as UserForm[],
                   ctx.session.userMatchDetails.currentUserIndex,
                   ctx
                 );
@@ -5433,7 +5583,7 @@ export class SceneGenerator {
     const premiumPeriod = new Scenes.BaseScene<MySceneContext>('premiumPeriod');
     premiumPeriod.enter(async (ctx) => {
       const replyMarkup = Markup.keyboard([
-        ['1 тиждень','1 місяць', '3 місяці'],
+        ['1 тиждень', '1 місяць', '3 місяці'],
         ['🔙 Назад'],
       ])
         .oneTime()
@@ -5452,7 +5602,7 @@ export class SceneGenerator {
     });
     this.addCommands(premiumPeriod);
 
-    premiumPeriod.hears(['1 тиждень','1 місяць', '3 місяці'], async (ctx) => {
+    premiumPeriod.hears(['1 тиждень', '1 місяць', '3 місяці'], async (ctx) => {
       const userId = ctx.from!.id;
       const user = await this.getUserFormDataFromDatabase(userId);
       if (!ctx.session.userForm) {
@@ -5463,13 +5613,14 @@ export class SceneGenerator {
         await ctx.reply('Ти вже маєш преміум підписку');
         return;
       }
-      const cardNumber = '`4246001066112586`'
+      const cardNumber = '`4246001066112586`';
       const subscriptionInfo = this.getSubscriptionInfo(ctx.message.text);
       if (subscriptionInfo) {
         const subscriptionPeriodUa = this.translateSubPeriodToUa(
           subscriptionInfo.period
         );
-        await ctx.replyWithMarkdownV2(`💝 Premium підписка в Crush
+        await ctx.replyWithMarkdownV2(
+          `💝 Premium підписка в Crush
 
 • *Термін:* ${subscriptionPeriodUa}
 • *Вартість:* ${subscriptionInfo.price} гривень
@@ -5477,9 +5628,10 @@ export class SceneGenerator {
 Оплатіть на банківську картку ${cardNumber} (копіюється при кліку) та відправте скріншот у підтримку @CrushSupport 📝
 
 ⭐️ Середній час активації – 5 хвилин!`.replace(
-  /([_[\]()~>#+=|{}.!-])/g,
-  '\\$1'
-))
+            /([_[\]()~>#+=|{}.!-])/g,
+            '\\$1'
+          )
+        );
         // const orderReference = this.generateOrderReference(
         //   userId,
         //   subscriptionInfo.period
