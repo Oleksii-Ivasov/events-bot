@@ -199,6 +199,9 @@ class Bot {
     app.get('/', (req, res) => {
       res.send('Hello, this is your Express app!');
     });
+    app.get('/healthz', (req, res) => {
+      res.status(200).send('OK');
+    });
     const PORT = process.env.PORT || 3000;
     app.listen(PORT, () => {
       console.log(`Server is running on port ${PORT}`);
